@@ -72,6 +72,7 @@ export class Solver {
       tau0: 0.52, cs2: 0.12 * 0.12, slip: 1, uin: 0.1, ti: 0.0, time: 0,
       modes: new Float32Array(32), sponge: Math.round(W * 0.1),
       rates: [0.8, 1.0, 1.2],   // s_e (bulk; <1 damps lattice acoustics), s_eps, s_q
+      sigma: 0.98,
     };
     this.nObj = 0;
     this.xf = new Float32Array(MAX_OBJ * 4);
@@ -124,6 +125,7 @@ export class Solver {
     const gl = this.gl, pr = this.pr.init;
     gl.useProgram(pr.p);
     gl.uniform2f(pr.u.uU, ux, 0);
+    gl.uniform2i(pr.u.uSize, this.W, this.H);
     bindTex(gl, 0, this.obsTex, pr.u.uObs);
     this._draw(this.fboW[this.cur], this.W, this.H);
     this.p.time = 0; this.steps = 0;
@@ -162,6 +164,7 @@ export class Solver {
     gl.uniform1i(pr.u.uSponge, p.sponge);
     gl.uniform2fv(pr.u.uPivot, this.piv);
     gl.uniform3fv(pr.u.uRates, p.rates);
+    gl.uniform1f(pr.u.uSigma, p.sigma);
     this._draw(this.fboW[n], this.W, this.H);
     this.cur = n;
     p.time += 1; this.steps++;

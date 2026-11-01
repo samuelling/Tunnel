@@ -12,6 +12,7 @@
   --sans: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;
 }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 13px/1.4 var(--sans); }
 button, select, input { font: inherit; color: inherit; }
 #app { display: flex; flex-direction: column; height: 100%; }

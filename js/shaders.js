@@ -37,11 +37,14 @@ layout(location=0) out vec4 oA;
 layout(location=1) out vec4 oB;
 layout(location=2) out vec4 oC;
 layout(location=3) out vec4 oF;
-float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7))) * 43758.5453); }
+uniform ivec2 uSize;
 void main(){
   ivec2 x = ivec2(gl_FragCoord.xy);
   vec4 ob = texelFetch(uObs, x, 0);
-  vec2 u = ob.x < 0.0 ? ob.zw : uU * (1.0 + 0.002*(hash(vec2(x))-0.5));
+  // smooth (not grid-scale) seed perturbation so symmetric wakes can break symmetry
+  vec2 xy = vec2(x) / vec2(uSize);
+  vec2 pert = uU.x * 0.004 * vec2(0.0, sin(6.2831853*3.0*xy.x) * exp(-pow((xy.y-0.5)*4.0, 2.0)));
+  vec2 u = ob.x < 0.0 ? ob.zw : uU + pert;
   float f[9];
   for(int k=0;k<9;k++) f[k] = feq(k, 1.0, u);
   oA = vec4(f[1],f[2],f[3],f[4]);
@@ -66,6 +69,7 @@ uniform vec4  uModes[8];  // inflow turbulence modes: (wavenumber, freq, phase, 
 uniform int   uSponge;    // outlet sponge length (cells)
 uniform vec2  uPivot[8];  // moment reference point for each object (lattice)
 uniform vec3  uRates;     // MRT rates: s_e, s_eps, s_q
+uniform float uSigma;     // hybrid-regularisation weight (1 = pure populations)
 
 layout(location=0) out vec4 oA;
 layout(location=1) out vec4 oB;
@@ -209,13 +213,30 @@ void main(){
   int xs = uSize.x - uSponge;
   if(x.x > xs){ sp = float(x.x - xs)/float(uSponge); sp *= sp; tau += 1.2*sp; }
 
+  // ---- hybrid regularisation (after Jacob, Malaspinas & Sagaut 2018 / Feng et al. 2019):
+  // blend the population stress with its finite-difference estimate from the velocity
+  // field. Physically they agree; only the grid-scale noise that tau -> 1/2 cannot damp
+  // differs, and that part is removed.
+  {
+    vec2 ue = texelFetch(uC, ivec2(min(x.x+1, uSize.x-1), x.y), 0).zw;
+    vec2 uq = texelFetch(uC, ivec2(max(x.x-1, 0), x.y), 0).zw;
+    vec2 un = texelFetch(uC, ivec2(x.x, min(x.y+1, uSize.y-1)), 0).zw;
+    vec2 us = texelFetch(uC, ivec2(x.x, max(x.y-1, 0)), 0).zw;
+    float dudx = 0.5*(ue.x-uq.x), dvdx = 0.5*(ue.y-uq.y);
+    float dudy = 0.5*(un.x-us.x), dvdy = 0.5*(un.y-us.y);
+    float fdxx = -2.0/3.0*rho*tau*(dudx - dvdy);
+    float fdxy = -1.0/3.0*rho*tau*(dudy + dvdx);
+    npxx = uSigma*npxx + (1.0-uSigma)*fdxx;
+    npxy = uSigma*npxy + (1.0-uSigma)*fdxy;
+  }
+
   float snu = 1.0/tau;
   float e2   = m_e   - uRates.x*(m_e   - e_eq);
   float eps2 = m_eps - uRates.y*(m_eps - eps_eq);
   float qx2  = m_qx  - uRates.z*(m_qx  + j.x);
   float qy2  = m_qy  - uRates.z*(m_qy  + j.y);
-  float pxx2 = m_pxx - snu*npxx;
-  float pxy2 = m_pxy - snu*npxy;
+  float pxx2 = pxx_eq + (1.0 - snu)*npxx;
+  float pxy2 = pxy_eq + (1.0 - snu)*npxy;
 
   // ---- back to populations: f = M^T D^-1 m ----
   float r9 = rho/9.0;

@@ -162,7 +162,7 @@ function loop(now) {
   perf.ema += (fdt - perf.ema) * 0.08;
   frameNo++;
   if (st.sub === 0 && frameNo % 20 === 0) {
-    if (perf.ema < 18.5 && nsub < 60) nsub += 2;
+    if (perf.ema < 18.5 && nsub < 100) nsub += 2;
     else if (perf.ema > 24 && nsub > 2) nsub = Math.max(2, Math.floor(nsub * 0.8));
   } else if (st.sub > 0) nsub = st.sub;
 
@@ -365,8 +365,9 @@ function drawOverlay() {
     if (st.arrows && b.hist.t.length) {
       const co = coeffs(b), cen = g2s(...b.centroid());
       const k = Math.min(70, Math.max(26, b.refLen() * ppc * 0.9));
-      arrow(c, cen[0], cen[1], co.cd * k, 0, 'rgba(255,122,26,0.95)');
-      arrow(c, cen[0], cen[1], 0, -co.cl * k, 'rgba(70,200,240,0.95)');
+      const cl3 = v => Math.max(-3, Math.min(3, v));
+      arrow(c, cen[0], cen[1], cl3(co.cd) * k, 0, 'rgba(255,122,26,0.95)');
+      arrow(c, cen[0], cen[1], 0, -cl3(co.cl) * k, 'rgba(70,200,240,0.95)');
     }
     if (isSel) {
       const hull = b.hullWorld().map(p => g2s(p[0], p[1]));
@@ -832,11 +833,11 @@ function updateReadouts() {
     const re = st.U * co.L * sc.dx / fl.nu;
     const massSpan = b.mass(fl.rho) * fl.rho * sc.dx * sc.dx;
     let html = ro('Re', fmtRe(re)) + ro('C<sub>D</sub>', s ? s.cd.toFixed(3) : co.cd.toFixed(3)) + ro('C<sub>L</sub>', s ? s.cl.toFixed(3) : co.cl.toFixed(3))
-      + ro('Drag', fmtSI(b.F[0] * kF, 'N/m')) + ro('Lift', fmtSI(b.F[1] * kF, 'N/m')) + ro('C<sub>M</sub>', co.cm.toFixed(3))
-      + ro('Strouhal', s && s.st ? s.st.toFixed(3) : '—') + ro('Mass', fmtSI(massSpan, 'kg/m')) + ro('L<sub>ref</sub>', fmtLen(co.L * sc.dx));
+      + ro('Drag', fmtSI(s ? s.fx : b.F[0] * kF, 'N/m')) + ro('Lift', fmtSI(s ? s.fy : b.F[1] * kF, 'N/m')) + ro('C<sub>M</sub>', co.cm.toFixed(3))
+      + ro('Strouhal', s && s.st ? s.st.toFixed(3) : '—') + ro('Mass / span', massSpan >= 1 ? `${massSpan.toPrecision(3)} kg/m` : `${(massSpan * 1000).toPrecision(3)} g/m`) + ro('L<sub>ref</sub>', fmtLen(co.L * sc.dx));
     if (b.mount !== 'fixed') {
       const vs = Math.hypot(...b.V) * sc.dx / sc.dt;
-      html += ro('Speed', fmtSI(vs, 'm/s')) + ro('Spin', `${(b.w / sc.dt / (2 * Math.PI) * 60).toFixed(0)} rpm`) + ro('α', `${(b.th / DEG).toFixed(1)}°`);
+      html += ro('Speed', fmtSI(vs, 'm/s')) + ro('Spin', `${(b.w / sc.dt / (2 * Math.PI) * 60).toFixed(0)} rpm`) + ro('Angle', `${(b.th / DEG).toFixed(1)}°`);
     }
     $('readouts').innerHTML = html;
     if (b.mount !== 'fixed' && document.activeElement !== $('angle')) {
