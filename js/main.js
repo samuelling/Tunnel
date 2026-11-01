@@ -37,9 +37,11 @@ function fatal(msg) {
 }
 
 function init() {
-  try { gl = createGL($('gl')); } catch (e) { fatal(e.message); return; }
-  buildUI();
-  buildSolver();
+  try {
+    gl = createGL($('gl'));
+    buildUI();
+    buildSolver();
+  } catch (e) { console.error(e); fatal('Could not start the simulator: ' + e.message); return; }
   const cyl = SHAPES.find(s => s.id === 'cylinder');
   addFromLibrary(cyl, { x: 0.27, y: 0.5, silent: true });
   layout();
@@ -156,8 +158,16 @@ function removeBody(b) {
 function clearHist(b) { for (const k in b.hist) b.hist[k].length = 0; b.avgStart = 0; }
 
 // ------------------------------------------------------------------ loop
+let loopErr = 0;
 function loop(now) {
   requestAnimationFrame(loop);
+  try { frame(now); } catch (e) {
+    console.error(e);
+    if (loopErr++ < 3) toast('Simulator error: ' + e.message);
+  }
+}
+
+function frame(now) {
   const fdt = Math.min(100, now - perf.last); perf.last = now;
   perf.ema += (fdt - perf.ema) * 0.08;
   frameNo++;
@@ -223,6 +233,7 @@ function handleReadback() {
       for (let i = 0; i < t.n && i < bodies.length; i++) {
         const b = bodies[i], d = r.data, n = d[i * 4 + 3] || 1;
         b.F = [d[i * 4] / n, d[i * 4 + 1] / n, d[i * 4 + 2] / n];
+        if (!b.F.every(Number.isFinite)) { b.F = [0, 0, 0]; resetFlow(); toast('Flow went unstable — restarted'); return; }
         record(b, t.t);
       }
     } else if (t.kind === 'probe') {

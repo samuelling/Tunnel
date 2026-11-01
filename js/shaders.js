@@ -43,7 +43,8 @@ void main(){
   vec4 ob = texelFetch(uObs, x, 0);
   // smooth (not grid-scale) seed perturbation so symmetric wakes can break symmetry
   vec2 xy = vec2(x) / vec2(uSize);
-  vec2 pert = uU.x * 0.004 * vec2(0.0, sin(6.2831853*3.0*xy.x) * exp(-pow((xy.y-0.5)*4.0, 2.0)));
+  float dy = (xy.y - 0.5)*4.0;   // (pow() of a negative base is undefined on real GPUs)
+  vec2 pert = uU.x * 0.004 * vec2(0.0, sin(6.2831853*3.0*xy.x) * exp(-dy*dy));
   vec2 u = ob.x < 0.0 ? ob.zw : uU + pert;
   float f[9];
   for(int k=0;k<9;k++) f[k] = feq(k, 1.0, u);
@@ -182,7 +183,7 @@ void main(){
 
   float rho = 0.0; vec2 j = vec2(0.0);
   for(int k=0;k<9;k++){ rho += f[k]; j += f[k]*vec2(CV[k]); }
-  rho = max(rho, 0.2);
+  if(!(rho > 0.2 && rho < 5.0)){ rho = 1.0; j = vec2(uUin, 0.0); for(int k=0;k<9;k++) f[k] = feq(k, 1.0, j); }
   vec2 u = j / rho;
 
   // ---- MRT moments (Lallemand & Luo 2000) ----
@@ -409,6 +410,7 @@ void main(){
   vec2 g = floor(gl_FragCoord.xy);
   vec2 uv = (g + 0.5)/vec2(uSize);
   vec4 phi = texture(uDye, uv);
+  if(any(isnan(phi))) phi = vec4(0.0);
   vec4 pred = texture(uPred, uv);
   // forward-trace the predictor back to here to estimate the error
   vec2 v1 = velAt(g);
@@ -588,7 +590,7 @@ void main(){
     vec3 base = uObjCol[clamp(id,0,7)];
     float depth = clamp(-sd/8.0, 0.0, 1.0);
     vec3 bc = base*(0.62 + 0.38*(1.0-depth));
-    float rim = smoothstep(1.6/uPxPerCell + 0.9, 0.0, -sd);
+    float rim = 1.0 - smoothstep(0.0, 1.6/uPxPerCell + 0.9, -sd);
     bc = mix(bc, base*1.25 + 0.08, rim*0.55);
     if(id == uSel){ bc += 0.06; }
     col = mix(col, bc, edge);

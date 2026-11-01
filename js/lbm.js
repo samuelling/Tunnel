@@ -18,7 +18,7 @@ export class Solver {
     };
     const t = () => tex32(gl, W, H);
     this.A = [t(), t()]; this.B = [t(), t()]; this.C = [t(), t()];
-    this.F = t();
+    this.F = tex16(gl, W, H);   // half-float keeps the 4-target pass within Apple GPU limits
     this.fboW = [0, 1].map(i => framebuffer(gl, [this.A[i], this.B[i], this.C[i], this.F]));
     this.fboC = [0, 1].map(i => framebuffer(gl, [this.C[i]]));
     this.cur = 0;
