@@ -53,7 +53,7 @@ async function run(name, cfg, gl, shape) {
   let cross = [];
   for (let i = 1; i < cl.length; i++) if ((cl[i - 1] - clm) < 0 && (cl[i] - clm) >= 0) cross.push(i);
   let st = NaN;
-  if (cross.length >= 3) {
+  if (cross.length >= 3 && clr > 0.01) {
     const period = (cross[cross.length - 1] - cross[0]) / (cross.length - 1) * chunk;
     st = D / (period * U);
   }

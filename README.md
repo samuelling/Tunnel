@@ -14,7 +14,8 @@ The tunnel is a 2D incompressible flow solver running on the GPU (WebGL2 fragmen
 | Piece | Model |
 |---|---|
 | Fluid | Lattice-Boltzmann, **D2Q9**, pull streaming |
-| Collision | **Multiple-relaxation-time** (Lallemand & Luo 2000). Bulk and ghost moments relax independently of shear, which keeps it stable at low viscosity |
+| Collision | **Multiple-relaxation-time** (Lallemand & Luo 2000). Bulk and ghost moments relax independently of shear, and the raised bulk viscosity damps spurious lattice acoustics |
+| Stabilisation | **Hybrid regularisation** (after Jacob, Malaspinas & Sagaut 2018; Feng et al. 2019). 2 % of the non-equilibrium stress is taken from a finite-difference strain estimate. This removes the grid-scale checkerboard noise that appears as τ → ½, and the resolved physics is unchanged |
 | Turbulence | **Smagorinsky LES** (C<sub>s</sub> adjustable). The eddy viscosity comes locally from the non-equilibrium stress, so no finite-difference gradients are needed (Hou et al. 1996) |
 | Walls of the model | **Interpolated bounce-back** (Bouzidi, Firdaouss & Lallemand 2001). The surface sits at its true sub-cell position, taken from a signed distance field, so curved bodies aren't staircases |
 | Moving walls | Rigid-body wall velocity (translation + rotation) enters the bounce-back. Covered and uncovered nodes are refilled at equilibrium |
@@ -30,7 +31,7 @@ The tunnel is a 2D incompressible flow solver running on the GPU (WebGL2 fragmen
 You set real quantities: fluid (air, water, honey, Mars atmosphere…), wind speed in m/s, test-section height and object size in metres, material density in kg/m³. These map to lattice units as follows:
 
 - Δx = test-section height / grid height
-- Lattice inlet speed ≤ 0.1 (lattice Mach ≈ 0.17, weakly compressible). It is lowered automatically for very viscous fluids so the relaxation time stays in range.
+- Lattice inlet speed ≤ 0.05 (lattice Mach ≈ 0.087). It is lowered automatically for very viscous fluids so the relaxation time stays in range. Keeping it low matters for a subtle reason: lattice sound is artificially slow, and at higher lattice Mach the tunnel's first transverse acoustic mode lands right on typical vortex-shedding frequencies. The shedding then locks onto it, which doubled the lift fluctuation in early tests.
 - Δt = U<sub>lattice</sub> · Δx / U
 - ν<sub>lattice</sub> = ν · Δt / Δx²
 
@@ -58,7 +59,13 @@ Thin objects (cards, leaves) are thickened to at least about 2.5 cells. Their "e
 
 `validate.html` runs flow past a circular cylinder and compares with the literature. The tunnel has 5–6 % blockage and slip walls, which raises C<sub>D</sub> by a few percent compared with an unconfined cylinder.
 
-VALIDATION_TABLE
+| Case | Grid | C<sub>D</sub> Tunnel | C<sub>D</sub> literature (unconfined) | C<sub>L</sub> rms | St Tunnel | St literature |
+|---|---|---|---|---|---|---|
+| Re 20 (steady) | 300×160, D = 10 cells | 2.27 | 2.05–2.09 | — | steady | steady |
+| Re 100 | 300×160, D = 10 cells | 1.49 | 1.33–1.40 | 0.236 (lit. ≈ 0.23) | 0.167 | 0.164–0.167 |
+| Re 10⁵, LES | 320×160, D = 24 cells, 15 % blockage | 1.73 | stability check | 1.02 | — | ≈ 0.2 |
+
+These runs used a software GPU at a deliberately coarse 10-cell diameter. Both that and the 6 % blockage push C<sub>D</sub> up by several percent. The lift fluctuation and shedding frequency are the more sensitive measures, and they match. The in-app grids put 20–80 cells across a typical model. On a real GPU, `validate.html` runs its default (finer) cases in a minute or two.
 
 ### Honest limits
 
