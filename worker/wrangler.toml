@@ -1,0 +1,15 @@
+name = "tunnel-claude"
+main = "worker.js"
+compatibility_date = "2026-10-01"
+
+[vars]
+# Comma-separated list of sites allowed to call this Worker
+ALLOWED_ORIGINS = "https://samuelling.github.io"
+# Cheaper/faster alternative: "claude-haiku-5-5"
+MODEL = "claude-sonnet-5-5"
+
+# 6 objects per visitor per minute
+[[ratelimits]]
+name = "LIMITER"
+namespace_id = "1001"
+simple = { limit = 6, period = 60 }

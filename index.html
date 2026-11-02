@@ -2,124 +2,93 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#0d0f12">
-<title>Tunnel — a physically modelled wind tunnel</title>
-<link rel="stylesheet" href="css/style.css">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#0b0d11">
+<title>Tunnel — will it blend?</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anton&family=JetBrains+Mono:wght@500;700&family=Inter:wght@400;600;800&display=swap">
+<link rel="stylesheet" href="css/app.css">
+<script type="importmap">
+{ "imports": { "three": "./lib/three.module.js", "three/addons/": "./lib/addons/" } }
+</script>
 </head>
 <body>
-<div id="app">
-  <header id="top">
-    <div class="brand"><b>TUNNEL</b><span>low-speed research wind tunnel · lattice-Boltzmann LES</span></div>
-    <div id="hud">
-      <div><label>U∞</label><output id="hudU">—</output></div>
-      <div><label>Re</label><output id="hudRe">—</output></div>
-      <div><label>t</label><output id="hudT">—</output></div>
-      <div><label>rate</label><output id="hudRate">—</output></div>
-      <div class="wide"><label>GPU</label><output id="hudPerf">—</output></div>
-    </div>
-    <div class="topbtns">
-      <button id="btnRun" class="primary" title="Run / pause (space)">❚❚</button>
-      <button id="btnReset" title="Restart the flow">↺</button>
-    </div>
-  </header>
+<canvas id="c"></canvas>
 
-  <main>
-    <section id="stage">
-      <canvas id="gl"></canvas>
-      <canvas id="ov"></canvas>
-      <div id="tools">
-        <button data-tool="move" class="on" title="Move / rotate objects (drag, wheel, two-finger twist)">✥<span>Move</span></button>
-        <button data-tool="smoke" title="Smoke wand: drag to inject smoke">≋<span>Smoke</span></button>
-        <button data-tool="draw" title="Draw your own object: closed loop = solid, open stroke = bent plate">✎<span>Draw</span></button>
-        <button data-tool="probe" title="Pitot probe: tap to place/remove">⌖<span>Probe</span></button>
-      </div>
-      <div id="toast"></div>
-    </section>
-
-    <aside id="panel">
-      <nav id="tabs">
-        <button data-tab="flow" class="on">Flow</button>
-        <button data-tab="objects">Objects</button>
-        <button data-tab="sel">Model</button>
-        <button data-tab="view">View</button>
-        <button data-tab="data">Data</button>
-      </nav>
-
-      <div class="tab on" id="tab-flow">
-        <div class="row"><label>Fluid</label><select id="fluid"></select></div>
-        <div class="row"><label>Wind speed</label><input type="range" id="speed" min="0" max="1000" step="1"><output id="speedOut"></output></div>
-        <div class="row"><label>Turbulence intensity</label><input type="range" id="ti" min="0" max="100" step="1"><output id="tiOut"></output></div>
-        <div class="row"><label>Tunnel walls</label><select id="walls"><option value="1">Free-slip (open-jet-like)</option><option value="0">No-slip (solid walls)</option></select></div>
-        <div class="row"><label>Gravity</label><select id="gravity"></select></div>
-        <div class="row"><label>Test section height</label><select id="height">
-          <option value="0.1">10 cm (desktop rig)</option><option value="0.5" selected>50 cm (university tunnel)</option>
-          <option value="2">2 m (automotive)</option><option value="10">10 m (boundary-layer, buildings)</option><option value="50">50 m (full-scale)</option></select></div>
-        <div class="row"><label>Grid</label><select id="res">
-          <option value="low">Low · 480 × 180</option><option value="med">Medium · 768 × 288</option>
-          <option value="high">High · 1024 × 384</option><option value="ultra">Ultra · 1536 × 576</option></select></div>
-        <div class="row"><label>LES Smagorinsky C<sub>s</sub></label><input type="range" id="cs" min="0" max="25" step="1"><output id="csOut"></output></div>
-        <div class="row"><label>Steps / frame</label><input type="range" id="sub" min="0" max="80" step="1"><output id="subOut"></output></div>
-        <div class="derived" id="derived"></div>
-        <div class="btnrow"><button id="btnReset2">Restart flow</button><button id="btnGust">Gust</button></div>
-      </div>
-
-      <div class="tab" id="tab-objects">
-        <div id="library"></div>
-        <h4>Make your own</h4>
-        <div class="row inline"><input id="textIn" type="text" placeholder="Type a word…" maxlength="14"><button id="btnText">Add text</button></div>
-        <div class="row inline"><label class="filebtn">Upload image<input id="imgIn" type="file" accept="image/*"></label><label class="chk"><input type="checkbox" id="imgInvert"> invert</label></div>
-        <p class="hint">Photos become silhouettes (dark object on light background, or transparent PNG). Or pick the <b>✎ Draw</b> tool and sketch on the tunnel: a closed loop becomes a solid, an open stroke becomes a bent plate.</p>
-        <div class="btnrow"><button id="btnClear" class="danger">Clear tunnel</button></div>
-      </div>
-
-      <div class="tab" id="tab-sel">
-        <div id="selNone" class="hint">Tap an object in the tunnel to select it.</div>
-        <div id="selBox" hidden>
-          <div class="selhead"><b id="selName"></b><span><button id="btnDup" title="Duplicate">⧉</button><button id="btnDel" class="danger" title="Remove">✕</button></span></div>
-          <div class="readouts" id="readouts"></div>
-          <div class="row"><label>Size (longest dimension)</label><input type="range" id="size" min="0" max="1000" step="1"><output id="sizeOut"></output></div>
-          <div class="row"><label>Angle</label><input type="range" id="angle" min="-180" max="180" step="0.5"><output id="angleOut"></output></div>
-          <div class="row"><label>Material</label><select id="mat"></select></div>
-          <div class="row"><label>Density</label><input type="number" id="dens" min="1" max="30000" step="1"><span class="unit">kg/m³</span></div>
-          <div class="row"><label>Mount</label><select id="mount"></select></div>
-          <div class="row" id="rowPivot"><label>Pivot / elastic axis (fraction of length from centre)</label><input type="range" id="pivot" min="-50" max="50" step="1"><output id="pivotOut"></output></div>
-          <div id="springBox">
-            <div class="row inline"><label class="chk"><input type="checkbox" id="heave"> Heave</label><label class="chk"><input type="checkbox" id="pitch"> Pitch</label></div>
-            <div class="row"><label>Heave natural freq.</label><input type="range" id="fh" min="0" max="1000"><output id="fhOut"></output></div>
-            <div class="row"><label>Pitch natural freq.</label><input type="range" id="fp" min="0" max="1000"><output id="fpOut"></output></div>
-            <div class="row"><label>Structural damping ζ</label><input type="range" id="zeta" min="0" max="100"><output id="zetaOut"></output></div>
-          </div>
-          <div class="row" id="rowTorsion"><label>Return spring (0 = none)</label><input type="range" id="tor" min="0" max="1000"><output id="torOut"></output></div>
-          <div class="row" id="rowRpm"><label>Motor speed</label><input type="range" id="rpm" min="-6000" max="6000" step="10"><output id="rpmOut"></output></div>
-          <div class="btnrow"><button id="btnHome">Re-centre / stop</button></div>
-        </div>
-      </div>
-
-      <div class="tab" id="tab-view">
-        <div class="seg" id="modes">
-          <button data-mode="0" class="on">Smoke</button><button data-mode="1">Vorticity</button><button data-mode="2">Speed</button>
-          <button data-mode="3">Pressure C<sub>p</sub></button><button data-mode="4">Schlieren</button><button data-mode="5">Particles</button>
-        </div>
-        <div class="row inline"><label class="chk"><input type="checkbox" id="rake" checked> Smoke rake</label><label class="chk"><input type="checkbox" id="rainbow"> Coloured streaks</label></div>
-        <div class="row"><label>Rake nozzles</label><input type="range" id="rakeN" min="6" max="64" step="1"><output id="rakeNOut"></output></div>
-        <div class="row"><label>Smoke density</label><input type="range" id="smoke" min="1" max="100"><output id="smokeOut"></output></div>
-        <div class="row"><label>Colour range</label><input type="range" id="range" min="-100" max="100"><output id="rangeOut"></output></div>
-        <div class="row inline"><label class="chk"><input type="checkbox" id="parts"> Seed particles</label><label class="chk"><input type="checkbox" id="streak" checked> Streak exposure</label></div>
-        <div class="row inline"><label class="chk"><input type="checkbox" id="arrows" checked> Force vectors</label><label class="chk"><input type="checkbox" id="frame" checked> Tunnel frame & rulers</label></div>
-      </div>
-
-      <div class="tab" id="tab-data">
-        <div class="selhead"><b id="dataName">—</b><span class="legend"><i class="cd"></i>C<sub>D</sub> <i class="cl"></i>C<sub>L</sub> <i class="cm"></i>C<sub>M</sub></span></div>
-        <canvas id="chart"></canvas>
-        <div class="readouts" id="stats"></div>
-        <div class="btnrow"><button id="btnAvg">Restart averaging</button><button id="btnCsv">Export CSV</button></div>
-        <p class="hint">Balance data are frame-averaged momentum-exchange forces on the model. Coefficients use ½ρU∞²L with L = chord (airfoils, plates) or frontal height (bluff bodies), per unit span.</p>
-      </div>
-    </aside>
-  </main>
+<div id="hud">
+  <div class="big"><span id="wind">0</span><small>m/s</small></div>
+  <div id="mph" class="sub">0 mph</div>
+  <div id="bft" class="bft">Beaufort 0 · Calm</div>
+  <div class="gauges">
+    <div><label>FAN</label><b id="rpm">0</b><i>rpm</i></div>
+    <div><label>MOTOR</label><b id="kw">0</b><i>kW</i></div>
+    <div><label>TIP</label><b id="tip">0</b><i>m/s</i></div>
+    <div><label>HUM</label><b id="bpf">0</b><i>Hz</i></div>
+  </div>
 </div>
-<div id="fatal" hidden></div>
-<script type="module" src="js/main.js"></script>
+
+<div id="tools">
+  <button id="btnCam" title="Cycle camera (C)">🎥<span id="camName">Overview</span></button>
+  <button id="btnSlow" title="Slow motion">🐢</button>
+  <button id="btnBullet" title="Auto bullet-time before the chop">⏱️</button>
+  <button id="btnSmoke" title="Smoke tracers">💨</button>
+  <button id="btnGust" title="Gust">🌬️</button>
+  <button id="btnSound" title="Sound">🔊</button>
+  <button id="btnChaos" title="Throw 8 random things">🎲</button>
+  <button id="btnClear" title="Clear debris">🧹</button>
+  <button id="btnInfo" title="How it works">ⓘ</button>
+</div>
+
+<div id="throttleBox">
+  <label>FAN</label>
+  <input type="range" id="throttle" min="0" max="100" value="0" orient="vertical">
+  <output id="thrOut">OFF</output>
+</div>
+
+<div id="slowBadge" hidden>SLOW-MO</div>
+<div id="verdict" hidden></div>
+<div id="card" hidden></div>
+<div id="toast"></div>
+<div id="tray"></div>
+<div id="countBox"><span id="tally"></span> <span class="dim">· <span id="count">0</span> bodies</span></div>
+
+<div id="maker" class="modal" hidden>
+  <div class="box">
+    <button id="makeClose" class="x">✕</button>
+    <h2>Feed it anything</h2>
+    <p id="makeNote" class="note"></p>
+    <div class="row"><input id="makeIn" maxlength="60" placeholder="a grand piano, a jellyfish, my old MacBook…" autocomplete="off"><button id="makeGo">Make it</button></div>
+    <div class="chips"><button>a grand piano</button><button>a stack of pancakes</button><button>a disco ball</button><button>a jellyfish</button><button>a lawn flamingo</button><button>a bag of marbles</button></div>
+    <p id="makeMsg" class="msg"></p>
+  </div>
+</div>
+
+<div id="info" class="modal" hidden>
+  <div class="box wide">
+    <button id="infoClose" class="x">✕</button>
+    <h2>How Tunnel works</h2>
+    <p>Silly premise, real physics underneath.</p>
+    <ul>
+      <li><b>The fan</b> is a 420 kg·m² rotor driven by a 1.2 MW speed-controlled motor, fighting an air load that grows with ω² (the fan law). Tunnel airspeed follows blade speed.</li>
+      <li><b>Blade strikes</b> are momentum exchanges: the blade surface (pitched 22–52°) hits the object with the reduced mass of object + rotor and 25% restitution. Heavy things visibly slow the fan, and an anvil can stall it. If the energy exceeds the object's toughness, it breaks.</li>
+      <li><b>The air</b> has a turbulent boundary layer growing from the intake lip, a sink-like intake that sucks things in, flow splitting around the hub, swirl behind the rotor and a spreading exit jet. Free-stream turbulence is a sum of divergence-free random Fourier modes, advected with the flow.</li>
+      <li><b>Aerodynamics</b> are computed per surface facet. Each facet gets impact pressure on the windward side, wake suction on the leeward side and skin friction, which is what makes things tumble. Thin flat things use a flat-plate model with a moving centre of pressure (Andersen, Pesavento &amp; Wang 2005), so cards and paper planes flutter. Spinning balls get Magnus lift and everything gets buoyancy (helium balloons rise).</li>
+      <li><b>Breaking</b> splits objects into their parts, or shatters them into convex chunks that are real rigid bodies. Fragile things also break on hard landings.</li>
+      <li><b>Sound</b> is synthesised. The hum is the blade-pass frequency (blades × rev/s), and wind noise follows the airspeed.</li>
+    </ul>
+    <p>Rigid bodies by <a href="https://rapier.rs" target="_blank" rel="noopener">Rapier</a>, rendering by <a href="https://threejs.org" target="_blank" rel="noopener">three.js</a>. A 2D CFD version (lattice-Boltzmann) lives in the <a href="lab/">Lab</a>.</p>
+  </div>
+</div>
+
+<div id="loading"><div class="ld"><b>TUNNEL</b><span>spinning up the fan…</span></div></div>
+<div id="start" hidden>
+  <div class="st">
+    <div class="t1">TUNNEL</div>
+    <div class="t2">WILL IT BLEND?</div>
+    <p>A giant wind tunnel with a 4.6-metre fan at the end: the Shred Hole. Throw things in.</p>
+    <button>TAP TO START</button>
+  </div>
+</div>
+<script type="module" src="js/app.js"></script>
 </body>
 </html>

@@ -1,104 +1,70 @@
-# Tunnel
+# Tunnel: the Shred Hole
 
-A physically modelled wind tunnel that runs in the browser. Put cylinders, airfoils, bridge decks, rubber ducks, teapots, your own drawings, words or photos into the test section. Then watch the flow, read the force balance, or let the object move: spring mounts, pivots, motors and free flight.
+A giant 3D wind tunnel with a 4.6-metre fan at the end. Pick something, throw it in and find out: **will it blend?**
 
-**Live:** https://samuelling.github.io/tunnel/ (serve the repo root with GitHub Pages)
-**Validation page:** `validate.html`
+Silly premise, real physics underneath. The scientific 2D version (lattice-Boltzmann CFD) lives on in [`/lab`](lab/).
 
----
+**Play:** https://samuelling.github.io/tunnel/ (GitHub Pages, serving the repo root)
 
-## Physics
+## What's modelled
 
-The tunnel is a 2D incompressible flow solver running on the GPU (WebGL2 fragment shaders, float32).
-
-| Piece | Model |
+| | |
 |---|---|
-| Fluid | Lattice-Boltzmann, **D2Q9**, pull streaming |
-| Collision | **Multiple-relaxation-time** (Lallemand & Luo 2000). Bulk and ghost moments relax independently of shear, and the raised bulk viscosity damps spurious lattice acoustics |
-| Stabilisation | **Hybrid regularisation** (after Jacob, Malaspinas & Sagaut 2018; Feng et al. 2019). 2 % of the non-equilibrium stress is taken from a finite-difference strain estimate. This removes the grid-scale checkerboard noise that appears as τ → ½, and the resolved physics is unchanged |
-| Turbulence | **Smagorinsky LES** (C<sub>s</sub> adjustable). The eddy viscosity comes locally from the non-equilibrium stress, so no finite-difference gradients are needed (Hou et al. 1996) |
-| Walls of the model | **Interpolated bounce-back** (Bouzidi, Firdaouss & Lallemand 2001). The surface sits at its true sub-cell position, taken from a signed distance field, so curved bodies aren't staircases |
-| Moving walls | Rigid-body wall velocity (translation + rotation) enters the bounce-back. Covered and uncovered nodes are refilled at equilibrium |
-| Forces | **Momentum exchange**, Galilean-invariant form (Wen et al. 2014). Summed per object on the GPU and averaged over each frame's substeps |
-| Inlet | Velocity inlet with optional **free-stream turbulence**: a sum of random Fourier modes advected at U∞, intensity set in % |
-| Outlet | Zero-gradient, plus an absorbing sponge (the "diffuser") that raises viscosity and damps pressure waves before they reflect |
-| Tunnel walls | Free-slip (specular) or no-slip (bounce-back) |
-| Smoke | Passive scalar, **MacCormack** advection with a limiter and RK2 characteristics. Rake of nozzles plus a hand-held smoke wand |
-| Tracers | 16k–65k seeded particles, RK2, rendered as streak exposures |
+| **Fan** | A 420 kg·m² rotor with a speed-controlled 1.2 MW motor, limited by stall torque and power, fighting an air load ∝ ω² (the fan law). Tunnel airspeed follows blade speed: about 40 m/s (90 mph) flat out. |
+| **Blade strikes** | Momentum exchange between the blade's leading edge (moving at ω·r) and the object, using the reduced mass of object and rotor. Light things get batted downstream; heavy things visibly slow the fan, and an anvil can stall it. If the strike energy beats the object's toughness, it breaks. Violent strikes mince the pieces as well. |
+| **Air** | A turbulent boundary layer growing from the intake lip (δ = 0.37·x·Re⁻¹ᐟ⁵, 1/7-power profile), a sink-like intake that sucks in things thrown nearby, flow splitting around the hub, swirl behind the rotor and a spreading exit jet. Turbulence is a sum of divergence-free random Fourier modes, advected with the flow. |
+| **Aerodynamics** | Calculated per facet of each surface: impact pressure on the windward side, wake suction on the leeward side, skin friction. This is what makes things tumble and weathercock. Thin flat things use a flat-plate model with a sliding centre of pressure (after Andersen, Pesavento & Wang 2005), so cards flutter. Spinning balls get Magnus lift, and everything gets buoyancy (the helium balloon floats). |
+| **Breaking** | Objects split into their parts, or shatter into convex chunks (a Voronoi-style split around interior seeds). Each chunk is a real rigid body, coloured from skin to insides. Fragile things also break on hard landings. |
+| **Rigid bodies** | [Rapier](https://rapier.rs) with continuous collision detection, at 180 Hz. |
+| **Sound** | All synthesised: wind noise that follows the airspeed, a hum at the blade-pass frequency (blades × rev/s), and impacts per material. |
 
-### Units
+The HUD shows wind speed (with its Beaufort number), fan rpm, motor power, blade-tip speed and hum frequency. Selecting an object shows its mass, drag area, terminal velocity and the wind needed to lift it. Each verdict reports pieces, biggest surviving fragment, strike energy and how much the fan slowed.
 
-You set real quantities: fluid (air, water, honey, Mars atmosphere…), wind speed in m/s, test-section height and object size in metres, material density in kg/m³. These map to lattice units as follows:
+## Controls
 
-- Δx = test-section height / grid height
-- Lattice inlet speed ≤ 0.05 (lattice Mach ≈ 0.087). It is lowered automatically for very viscous fluids so the relaxation time stays in range. Keeping it low matters for a subtle reason: lattice sound is artificially slow, and at higher lattice Mach the tunnel's first transverse acoustic mode lands right on typical vortex-shedding frequencies. The shedding then locks onto it, which doubled the lift fluctuation in early tests.
-- Δt = U<sub>lattice</sub> · Δx / U
-- ν<sub>lattice</sub> = ν · Δt / Δx²
+- Pick an object in the tray, then **flick** on the scene to throw it (or tap / press space for a gentle toss). Two fingers or right-drag to look around.
+- **FAN** slider sets the wind. 🎥 cycles cameras (Overview, Feeder, Blades, Window, Exit, Follow). 🐢 slow motion. ⏱️ auto bullet-time right before the chop. 💨 smoke tracers. 🎲 chaos.
 
-Every readout converts back to SI: drag and lift in N per metre of span, moment, shedding frequency in Hz, Reynolds and Strouhal numbers. The HUD shows how much slower (or faster) than real time the run is.
+## Type anything (Claude designs the object)
 
-At realistic Reynolds numbers (10⁴–10⁶) the molecular relaxation time sits just above ½. The flow is then under-resolved on purpose, and the LES closure carries the sub-grid scales. That is the same trade-off real engineering CFD makes.
+The ✨ tile lets players type any object. Claude returns a JSON recipe: primitive parts with real dimensions, colours and materials, plus mass, toughness, what sprays out, what it sounds like, a verdict line and a physics fact. Built-in objects use the same recipe format (`js/objects.js`), so generated objects get the same physics.
 
-### Rigid-body dynamics
+There are two ways the page can reach Claude:
 
-Each object is a rigid body with mass and moment of inertia integrated from its silhouette and material density. Its mount sets which degrees of freedom are free:
+1. **Claude-hosted version (artifact).** The page asks Claude directly. Each viewer gets a consent prompt and it runs on their own Claude account. Nothing to set up.
+2. **GitHub Pages.** A small Cloudflare Worker (`worker/`) holds an API key and only accepts `{"object": "<name>"}`. The prompt is built server-side, so the Worker can't be used as a general Claude proxy. It rate-limits each visitor and caches each object name for a week.
 
-| Mount | DOF | What it shows |
-|---|---|---|
-| Fixed | none | Force balance: C<sub>D</sub>, C<sub>L</sub>, C<sub>M</sub>, Strouhal |
-| Pivot | θ (optional return spring) | Weathervanes, Savonius rotors, autorotation |
-| Motor | driven θ̇ | Magnus effect on a spinning cylinder, motor torque |
-| Spring | heave y and/or pitch θ about an elastic axis, with natural frequencies and damping ζ | Vortex-induced vibration, galloping, classical flutter (the Tacoma Narrows deck preset) |
-| Free | x, y, θ with gravity, buoyancy and wall contact | Tumbling cards, fluttering leaves, levitating a ping-pong ball in the vertical tunnel |
+### Deploying the Worker
 
-The equations of motion use the full rigid-body mass matrix about the pivot, including the centroid offset that couples heave and pitch (the mechanism behind flutter). Gravity acts at the centroid; buoyancy (ρ<sub>fluid</sub>·A·g) is added explicitly. Very light bodies (density near or below the fluid's, e.g. foam in water) would make explicit coupling unstable. The solver therefore uses a lagged added-mass correction, so free bodies stay stable at any density ratio.
+1. **API key.** Max includes monthly API credit. On claude.ai go to Settings → Billing → API credits → Link organization. Then create an API key in that Console organization, and set a workspace spend limit there as a safety net.
+2. **Deploy:**
+   ```sh
+   npm i -g wrangler
+   cd worker
+   wrangler login
+   wrangler secret put ANTHROPIC_API_KEY
+   wrangler deploy
+   ```
+3. Paste the printed `https://tunnel-claude.<you>.workers.dev` URL into `js/settings.js` and push. To test before pushing, open the site once with `?worker=<url>`.
 
-Thin objects (cards, leaves) are thickened to at least about 2.5 cells. Their "effective" material densities keep the real mass per unit span.
-
-### Validation
-
-`validate.html` runs flow past a circular cylinder and compares with the literature. The tunnel has 5–6 % blockage and slip walls, which raises C<sub>D</sub> by a few percent compared with an unconfined cylinder.
-
-| Case | Grid | C<sub>D</sub> Tunnel | C<sub>D</sub> literature (unconfined) | C<sub>L</sub> rms | St Tunnel | St literature |
-|---|---|---|---|---|---|---|
-| Re 20 (steady) | 300×160, D = 10 cells | 2.27 | 2.05–2.09 | — | steady | steady |
-| Re 100 | 300×160, D = 10 cells | 1.49 | 1.33–1.40 | 0.236 (lit. ≈ 0.23) | 0.167 | 0.164–0.167 |
-| Re 10⁵, LES | 320×160, D = 24 cells, 15 % blockage | 1.73 | stability check | 1.02 | — | ≈ 0.2 |
-
-These runs used a software GPU at a deliberately coarse 10-cell diameter. Both that and the 6 % blockage push C<sub>D</sub> up by several percent. The lift fluctuation and shedding frequency are the more sensitive measures, and they match. The in-app grids put 20–80 cells across a typical model. On a real GPU, `validate.html` runs its default (finer) cases in a minute or two.
-
-### Honest limits
-
-- **2D.** Every object is an infinitely long extrusion of its silhouette: a rubber duck here is a duck-shaped beam. 2D turbulence cascades energy to large scales, so wakes are more coherent than in 3D, and bluff-body drag at high Re typically comes out 10–30 % above 3D experiments.
-- **Incompressible.** Fine up to about 100 m/s in air. Shocks and transonic effects are not modelled.
-- **Wall resolution.** At Re ≳ 10⁴ the boundary layer is thinner than a cell, so separation on smooth curved bodies is less precise than on sharp-edged ones. Sharp-edged bodies (plates, squares, bridge decks) are the most trustworthy at high Re.
-
-## Using it
-
-- **Objects tab:** tap a model to add it (up to 8). Type a word, upload a photo (it becomes a silhouette), or use the **✎ Draw** tool: a closed loop becomes a solid, an open stroke becomes a bent plate.
-- **Move tool:** drag to move, drag the orange handle, scroll, or twist with two fingers to rotate. Free-flying objects can be thrown.
-- **Smoke tool:** drag to release smoke. **Probe tool:** place pitot probes that read speed and C<sub>p</sub>.
-- **Model tab:** size, angle, material, density, mount, springs, motor speed, plus live coefficients.
-- **View tab:** smoke, vorticity, speed, pressure coefficient, schlieren, particles.
-- **Data tab:** time history of C<sub>D</sub>/C<sub>L</sub>/C<sub>M</sub>, means, RMS, shedding frequency, CSV export.
-- Keyboard: space to pause, ←/→ to rotate (shift for 0.1°), delete to remove.
-
-No build step. Open `index.html` from any static server.
-
-```
-python3 -m http.server
-```
+`worker/wrangler.toml` sets the allowed origin, the model (Sonnet by default; Haiku is cheaper) and the rate limit.
 
 ## Files
 
 ```
-index.html        app shell
-css/style.css
-js/shaders.js     all GLSL: LBM-MRT-LES kernel, obstacle rasteriser, reductions, smoke, particles, renderer
-js/lbm.js         GPU solver (textures, passes, async readback)
-js/body.js        rigid-body dynamics and mounts
-js/shapes.js      object library, silhouette → signed distance field (exact EDT), mass properties
-js/units.js       fluids, materials, SI ↔ lattice scaling
-js/main.js        UI, interaction, instrumentation, main loop
-validate.html     cylinder benchmarks
+index.html, css/app.css
+js/app.js        game loop, throwing, cameras, verdicts, UI
+js/fan.js        rotor dynamics, blade-sweep detection, blade geometry
+js/air.js        flow model + turbulence
+js/aero.js       facet and flat-plate aerodynamics, Magnus, buoyancy
+js/objects.js    object recipes, recipe → meshes/colliders/mass properties
+js/prompt.js     the object-design prompt (shared with the Worker)
+js/fracture.js   convex-chunk shattering
+js/particles.js  juice, sparks, confetti, smoke
+js/audio.js      synthesised sound
+js/scene.js      hangar, tunnel, static colliders
+js/claude.js     Claude connection (artifact or Worker)
+worker/          Cloudflare Worker for the GitHub Pages version
+lib/             vendored three.js r187 and Rapier 0.21 (MIT / Apache-2.0)
+lab/             the original 2D lattice-Boltzmann wind tunnel
 ```
