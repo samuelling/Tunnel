@@ -17,6 +17,7 @@ export class Air {
     this.TI = 0.07;      // turbulence intensity
     this.omega = 0;
     this.gust = 0;
+    this.dir = 1; this.Us = 0; this.flowDir = 1;
     const modes = [];
     let e = 0;
     for (let i = 0; i < 14; i++) {
@@ -42,57 +43,73 @@ export class Air {
 
   update(dt, omega) {
     this.omega = omega;
-    let target = FAN.phi * Math.abs(omega) * FAN.Rtip;
+    // the blades are pitched to push air down the tube; run backwards they still move air the
+    // other way, but less efficiently (reversed axial fans deliver ~60–70% of their forward flow)
+    if (Math.abs(omega) > 0.3) this.dir = omega >= 0 ? 1 : -1;
+    let target = FAN.phi * Math.abs(omega) * FAN.Rtip * (omega < 0 ? FAN.reverseEff : 1);
     if (this.gust > 0) { target *= 1 + 0.5 * Math.sin(Math.PI * (1 - this.gust / 2.5)) ** 2; this.gust = Math.max(0, this.gust - dt); }
-    this.U += (target - this.U) * (1 - Math.exp(-dt / 0.6));
+    // the air column has to stop before it can reverse: track a signed speed, report its size
+    this.Us = this.Us ?? 0;
+    this.Us += (target * (this.dir || 1) - this.Us) * (1 - Math.exp(-dt / 0.6));
+    this.U = Math.abs(this.Us);
+    this.flowDir = this.Us >= 0 ? 1 : -1;
     this.t += dt;
-    this.adv += this.U * dt;
+    this.adv += this.Us * dt;
   }
 
   // Mean (ensemble-averaged) velocity at a point. Returns turbulence weight in out[3].
+  // Worked out in a "stream" coordinate s that runs from the upstream lip to the downstream
+  // end, so forward flow (down the tube) and reversed flow (up the tube) share one model.
   mean(x, y, z, out) {
-    const R = TUN.R, L = TUN.L, U = this.U;
+    const R = TUN.R, L = TUN.L, U = this.U, D = this.flowDir || 1;
     const dy = y - TUN.y0, dz = z, r = Math.sqrt(dy * dy + dz * dz);
-    let ux = 0, uy = 0, uz = 0, tf = 0;
+    let us = 0, uy = 0, uz = 0, tf = 0;
     if (U < 1e-4) { out[0] = out[1] = out[2] = out[3] = 0; return out; }
-    if (x >= 0 && x <= L) {
+    const xs = D > 0 ? x : L - x, fanS = D > 0 ? TUN.fanX : L - TUN.fanX;
+    const rot = Math.sign(this.omega || 1);
+    if (xs >= 0 && xs <= L) {
       if (r < R) {
-        const xd = Math.max(x, 0.05);
+        const xd = Math.max(xs, 0.05);
         const Rex = Math.max(1e3, U * xd / NU);
         const delta = Math.min(R * 0.9, 0.37 * xd * Math.pow(Rex, -0.2));
         const yw = R - r;
         const prof = yw >= delta ? 1 : Math.pow(Math.max(yw, 1e-4) / delta, 1 / 7);
-        ux = U * prof / (1 - 2 * (delta / 8) / R);
+        us = U * prof / (1 - 2 * (delta / 8) / R);
         tf = 1 + 1.5 * (1 - prof);
-        const dxf = x - TUN.fanX;
+        const dxf = xs - fanS;
         if (dxf > -1.6 && dxf < 0) {               // stream splits around the hub
           const s = (dxf + 1.6) / 1.6, hub = FAN.Rhub * 1.3;
           const k = Math.exp(-((r / hub) ** 2)) * s;
-          ux *= 1 - 0.75 * k;
+          us *= 1 - 0.75 * k;
           if (r > 1e-3) { const vr = 0.55 * U * k * Math.min(1, r / hub); uy += vr * dy / r; uz += vr * dz / r; }
         } else if (dxf >= 0 && r > 1e-3) {         // swirl left behind by the rotor
-          const sw = 0.28 * U * Math.min(1, r / R) * Math.sign(this.omega || 1);
-          uy += -sw * dz / r; uz += sw * dy / r; ux *= 1.06; tf *= 1.6;
+          const sw = 0.28 * U * Math.min(1, r / R) * rot;
+          uy += -sw * dz / r; uz += sw * dy / r; us *= 1.06; tf *= 1.6;
         }
       }
-    } else if (x < 0) {                              // intake: converging, sink-like inflow
-      const cx = 0.35 * R, ddx = x - cx, d2 = ddx * ddx + r * r, d = Math.sqrt(d2) + 1e-6;
+    } else if (xs < 0) {                             // intake: converging, sink-like inflow
+      const cx = 0.35 * R, ddx = xs - cx, d2 = ddx * ddx + r * r, d = Math.sqrt(d2) + 1e-6;
       const mag = U * R * R / (R * R + 1.8 * d2);
-      ux = -ddx / d * mag; uy = -dy / d * mag; uz = -dz / d * mag;
+      us = -ddx / d * mag; uy = -dy / d * mag; uz = -dz / d * mag;
       tf = 0.35 * mag / U;
-    } else {                                         // exit jet, spreading ~12% per length…
-      const xe = x - L, width = R * (1 + 0.12 * xe);
+    } else {                                         // exit jet, spreading ~12% per length
+      const xe = xs - L, width = R * (1 + 0.12 * xe);
       const k = (R / width) * Math.exp(-1.5 * (r / width) ** 2);
-      ux = 1.1 * U * k;
-      if (r > 1e-3) { const sw = 0.25 * U * k * Math.sign(this.omega || 1); uy += -sw * dz / r; uz += sw * dy / r; }
+      us = 1.1 * U * k;
+      if (r > 1e-3) { const sw = 0.25 * U * k * rot; uy += -sw * dz / r; uz += sw * dy / r; }
       tf = 1.4 * k;
-      // …feeding the portal's vortex: a Lamb–Oseen-like swirl with inflow and downdraft,
-      // strengthening towards the floor
-      const s = Math.min(1, Math.max(0, xe / (TUN.groundX - L)));
-      const rc = 0.9, g = 4 + 0.25 * U, swirl = g * r / (r * r + rc * rc) * (0.4 + s);
-      const sink = (1.5 + 0.08 * U) * s * Math.min(1, r / rc) * Math.exp(-((r / (PORTAL.R * 1.6)) ** 2));
+    }
+    let ux = us * D;
+    // the portal's vortex below the tube: a Lamb–Oseen-like swirl with inflow and downdraft,
+    // strengthening towards the floor. Forward flow feeds it with the exit jet; in reverse it
+    // only has its own (magical) strength and the tube's intake is drawing air up out of it.
+    if (x > L) {
+      const Uf = D > 0 ? U : 0;
+      const s = Math.min(1, Math.max(0, (x - L) / (TUN.groundX - L)));
+      const rc = 0.9, g = 4 + 0.25 * Uf, swirl = g * r / (r * r + rc * rc) * (0.4 + s);
+      const sink = (1.5 + 0.08 * Uf) * s * Math.min(1, r / rc) * Math.exp(-((r / (PORTAL.R * 1.6)) ** 2));
       if (r > 1e-3) { uy += (-swirl * dz - sink * dy) / r; uz += (swirl * dy - sink * dz) / r; }
-      ux += (2 + 0.1 * U) * s * Math.exp(-((r / PORTAL.R) ** 2));
+      ux += (2 + 0.1 * Uf) * s * Math.exp(-((r / PORTAL.R) ** 2));
     }
     out[0] = ux; out[1] = uy; out[2] = uz; out[3] = tf;
     return out;

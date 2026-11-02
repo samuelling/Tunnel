@@ -9,19 +9,22 @@ export class Rotor {
     this.theta = 0; this.omega = 0; this.setpoint = 0; this.torque = 0; this.hits = 0;
   }
   step(dt) {
+    // setpoint −1 … +1: positive pushes air down the tube (shred), negative runs the rotor
+    // backwards and blows air up it
     const w = this.omega, target = this.setpoint * FAN.omegaMax;
     const aero = FAN.kAero * w * Math.abs(w) + 60 * Math.sign(w);
     // speed controller: feed-forward the air load, proportional on the error
     let tq = aero + FAN.I * (target - w) / 0.6;
-    const pLimit = FAN.Pmax / Math.max(Math.abs(w), 2);
-    tq = Math.max(-0.35 * FAN.Tmax, Math.min(Math.min(FAN.Tmax, pLimit), tq));
-    if (this.setpoint <= 0 && w < 0.5) tq = Math.min(tq, 0);
+    // torque along the spin direction is motoring (power-limited); against it is braking
+    const drive = Math.min(FAN.Tmax, FAN.Pmax / Math.max(Math.abs(w), 2)), brake = 0.35 * FAN.Tmax;
+    tq = w > 0.5 ? Math.max(-brake, Math.min(drive, tq)) : w < -0.5 ? Math.max(-drive, Math.min(brake, tq)) : Math.max(-drive, Math.min(drive, tq));
+    if (this.setpoint === 0 && Math.abs(w) < 0.5) tq = 0;
     this.torque = tq;
     this.omega += (tq - aero) / FAN.I * dt;
-    if (this.setpoint <= 0 && Math.abs(this.omega) < 0.05) this.omega = 0;
+    if (this.setpoint === 0 && Math.abs(this.omega) < 0.05) this.omega = 0;
     this.prevTheta = this.theta;
     this.theta += this.omega * dt;
-    if (this.theta > 1e4) { this.theta -= 2 * Math.PI * Math.floor(this.theta / (2 * Math.PI)); this.prevTheta = this.theta - this.omega * dt; }
+    if (Math.abs(this.theta) > 1e4) { this.theta -= 2 * Math.PI * Math.floor(this.theta / (2 * Math.PI)); this.prevTheta = this.theta - this.omega * dt; }
   }
   get rpm() { return this.omega * 60 / (2 * Math.PI); }
   get power() { return Math.max(0, this.torque * this.omega); }

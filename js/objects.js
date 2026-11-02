@@ -8,6 +8,7 @@ import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.j
 import { ConvexHull } from 'three/addons/math/ConvexHull.js';
 
 import { SPRAYS, SOUNDS, MATERIAL_NAMES } from './prompt.js';
+import { BIG_STUFF } from './bigstuff.js';
 export { SPRAYS, SOUNDS, recipePrompt } from './prompt.js';
 export const MATERIALS = {
   plastic: { rough: 0.32, metal: 0, rest: 0.4 },
@@ -29,6 +30,7 @@ const d2r = Math.PI / 180;
 
 // ------------------------------------------------------------------------------- catalogue
 export const CATALOG = [
+  ...BIG_STUFF,
   { id: 'duck', name: 'Rubber duck', icon: '🦆', mass: 0.08, toughness: 25, spray: 'confetti', sound: 'squeak', inner: '#ffe36b',
     blend: 'IT BLENDS. Quack is now a gas.', survive: 'The duck remains smug and aerodynamic.',
     parts: [

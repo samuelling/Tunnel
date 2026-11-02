@@ -529,7 +529,7 @@ function loop(now) {
   if (smokeOn && air.U > 0.3) {
     for (let k = 0; k < 6; k++) {
       const a = Math.random() * Math.PI * 2, rr = Math.sqrt(Math.random()) * 3.4;
-      particles.emit('smoke', { x: -1.6, y: Math.cos(a) * rr, z: Math.sin(a) * rr }, { x: 0, y: 0, z: 0 }, 1, 0.05);
+      particles.emit('smoke', { x: air.flowDir > 0 ? -1.6 : TUN.L + 0.9, y: Math.cos(a) * rr * (air.flowDir > 0 ? 1 : 0.7), z: Math.sin(a) * rr * (air.flowDir > 0 ? 1 : 0.7) }, { x: 0, y: 0, z: 0 }, 1, 0.05);
     }
   }
   particles.update(fdt * ts, air);
@@ -595,8 +595,8 @@ function hud(ts) {
   $('mph').textContent = `${(U * 2.237).toFixed(0)} mph · ${(U * 3.6).toFixed(0)} km/h`;
   const bf = beaufort(U);
   $('bft').textContent = `Beaufort ${bf.n} · ${bf.name}`;
-  const rpm = Math.abs(rotor.rpm);
-  $('rpm').textContent = rpm.toFixed(0);
+  const rpm = rotor.rpm;
+  $('rpm').textContent = (rpm < -0.5 ? '−' : '') + Math.abs(rpm).toFixed(0);
   $('kw').textContent = (rotor.power / 1000).toFixed(0);
   $('tip').textContent = (Math.abs(rotor.omega) * FAN.Rtip).toFixed(0);
   $('bpf').textContent = (Math.abs(rotor.omega) / (2 * Math.PI) * FAN.blades).toFixed(0);
@@ -619,11 +619,16 @@ function buildUI() {
 
   const thr = $('throttle');
   const setThr = () => {
-    rotor.setpoint = thr.value / 100;
-    $('thrOut').textContent = thr.value > 0 ? `${(FAN.phi * rotor.setpoint * FAN.omegaMax * FAN.Rtip).toFixed(0)} m/s` : 'OFF';
+    let v = +thr.value;
+    if (Math.abs(v) < 6) { v = 0; if (+thr.value !== 0) thr.value = 0; }   // centre detent = off
+    rotor.setpoint = v / 100;
+    const u = FAN.phi * Math.abs(rotor.setpoint) * FAN.omegaMax * FAN.Rtip * (v < 0 ? FAN.reverseEff : 1);
+    $('thrOut').textContent = v === 0 ? 'OFF' : `${v > 0 ? '↓' : '↑'} ${u.toFixed(0)} m/s`;
+    $('throttleBox').classList.toggle('rev', v < 0);
   };
   thr.oninput = setThr; setThr();
   $('btnCam').onclick = () => setCamera((camMode + 1) % CAMS.length);
+  $('card').onclick = () => { $('card').hidden = true; };
   $('btnSlow').onclick = () => { timeScale = timeScale === 1 ? 0.25 : timeScale === 0.25 ? 0.06 : 1; $('btnSlow').classList.toggle('on', timeScale < 1); };
   $('btnBullet').onclick = () => { autoBullet = !autoBullet; $('btnBullet').classList.toggle('on', autoBullet); toast(autoBullet ? 'Auto bullet-time on: slows down right before the chop' : 'Auto bullet-time off'); };
   $('btnBullet').classList.toggle('on', autoBullet);
@@ -716,6 +721,16 @@ function showCard(r) {
   const Lc = built.radius * 2;
   const Re = air.U * Lc / NU;
   const bf = beaufort(vt);
+  if (compactUI()) {
+    $('card').classList.add('mini');
+    $('card').innerHTML = `<b>${escapeHtml(r.name)}</b> <span class="facts"><span><i>${fmtMass(m)}</i></span><span>${Lc.toFixed(1)} m</span><span>falls at <i>${vt.toFixed(0)} m/s</i></span></span>
+      <div class="hint">Flick the scene to throw · tap here to hide</div>`;
+    $('card').hidden = false;
+    clearTimeout(showCard.h);
+    showCard.h = setTimeout(() => { $('card').hidden = true; }, 3500);
+    return;
+  }
+  $('card').classList.remove('mini');
   $('card').innerHTML = `<b>${escapeHtml(r.name)}</b>
     <div class="facts"><span>mass <i>${fmtMass(m)}</i></span><span>size <i>${Lc.toFixed(2)} m</i></span><span>drag area <i>${(cda * 1e4).toFixed(0)} cm²</i></span>
     <span>terminal velocity <i>${vt.toFixed(1)} m/s</i></span><span>lifts off in <i>${bf.name.toLowerCase()}</i></span><span>Re now <i>${Re > 1e4 ? Re.toExponential(1) : Re.toFixed(0)}</i></span></div>
@@ -723,6 +738,15 @@ function showCard(r) {
   $('card').hidden = false;
   clearTimeout(showCard.h);
   if (isTouch) showCard.h = setTimeout(() => { $('card').hidden = true; }, 6000);
+}
+
+function compactUI() { return innerWidth <= 700 || (isTouch && innerHeight <= 500); }
+
+// bounding radius of a recipe (cached), so big things are aimed clear of the tube wall
+const radiusCache = new WeakMap();
+function recipeRadius(r) {
+  if (!radiusCache.has(r)) { const b = buildObject(r); b.group.traverse(o => o.geometry && o.geometry.dispose()); radiusCache.set(r, b.radius); }
+  return radiusCache.get(r);
 }
 
 const ray = new THREE.Raycaster();
@@ -737,7 +761,7 @@ function throwArmed(sx, sy, swipe) {
   const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -topY);
   let wp = new THREE.Vector3();
   if (!ray.ray.intersectPlane(plane, wp) || wp.distanceTo(camera.position) > 60) wp.set((Math.random() - 0.5) * 1.5, topY, (Math.random() - 0.5) * 1.5);
-  const rr = Math.hypot(wp.x, wp.z), lim = TUN.R - 0.5;
+  const rr = Math.hypot(wp.x, wp.z), lim = Math.max(0.15, TUN.R - Math.max(0.5, recipeRadius(armed) + 0.25));
   if (rr > lim) { wp.x *= lim / rr; wp.z *= lim / rr; }
   wp.y = topY;
   // launching from inside the tube (Blades camera): drop it just in front of the lens
@@ -753,15 +777,17 @@ function throwArmed(sx, sy, swipe) {
     if (wv.length() > 30) wv.setLength(30);
   }
   spawnRecipe(armed, rig.worldToLocal(wp), wv.applyQuaternion(qInv()));
+  if (compactUI()) $('card').hidden = true;
 }
 
 function chaos() {
-  const list = recipes.filter(r => r.id !== 'anvil');
+  const list = recipes.filter(r => r.id !== 'anvil' && r.mass < 150);
   for (let i = 0; i < 8; i++) setTimeout(() => {
     const r = list[(Math.random() * list.length) | 0];
-    spawnRecipe(r, new THREE.Vector3(-1.4, (Math.random() - 0.5) * 2.6, (Math.random() - 0.5) * 2.6), new THREE.Vector3(1 + Math.random() * 2, (Math.random() - 0.5) * 2, (Math.random() - 0.5) * 2));
+    const sp = Math.max(0.2, 2 * (TUN.R - Math.max(0.5, recipeRadius(r) + 0.25)));
+    spawnRecipe(r, new THREE.Vector3(-1.4 - Math.max(0, recipeRadius(r) - 0.4), (Math.random() - 0.5) * sp, (Math.random() - 0.5) * sp), new THREE.Vector3(1 + Math.random() * 2, (Math.random() - 0.5) * 2, (Math.random() - 0.5) * 2));
   }, i * 260);
-  if (rotor.setpoint < 0.3) { $('throttle').value = 80; $('throttle').oninput(); }
+  if (rotor.setpoint < 0.3) { $('throttle').value = 80; $('throttle').oninput(); }  // chaos needs the shredder
   toast('CHAOS');
 }
 

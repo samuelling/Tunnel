@@ -32,6 +32,8 @@ export const FAN = {
 FAN.kAero = FAN.Pmax / FAN.omegaMax ** 3;
 // flow coefficient: mean tube speed = phi * omega * Rtip (≈ 40 m/s flat out)
 FAN.phi = 40 / (FAN.omegaMax * FAN.Rtip);
+// run backwards, the pitched blades move air the other way at reduced efficiency
+FAN.reverseEff = 0.65;
 
 export const BEAUFORT = [
   [0.5, 'Calm'], [1.6, 'Light air'], [3.4, 'Light breeze'], [5.5, 'Gentle breeze'],

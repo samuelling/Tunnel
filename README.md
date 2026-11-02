@@ -23,7 +23,7 @@ The HUD shows wind speed (with its Beaufort number), fan rpm, motor power, blade
 ## Controls
 
 - Pick an object in the tray, then **flick** on the scene to throw it (or tap / press space for a gentle toss). Two fingers or right-drag to look around.
-- **FAN** slider sets the wind. 🎥 cycles cameras (Overview, Hopper, Blades, Window, Portal, Follow). 🐢 slow motion. ⏱️ auto bullet-time right before the chop. 💨 smoke tracers. 🎲 chaos.
+- **FAN** slider is bipolar. Above the centre line (SHRED) it pulls air down onto the blades; below it (LIFT) the rotor reverses and blows air up the tube at ~65% of the forward flow, so light things levitate or get blown out the top while heavy ones sink into the blades. Centre = off. 🎥 cycles cameras (Overview, Hopper, Blades, Window, Portal, Follow). 🐢 slow motion. ⏱️ auto bullet-time right before the chop. 💨 smoke tracers. 🎲 chaos.
 
 ## The portal → World Builder
 
@@ -77,6 +77,7 @@ js/fan.js        rotor dynamics, blade-sweep detection, blade geometry
 js/air.js        flow model + turbulence
 js/aero.js       facet and flat-plate aerodynamics, Magnus, buoyancy
 js/objects.js    object recipes, recipe → meshes/colliders/mass properties
+js/bigstuff.js   the big stuff: fridge, mannequin, toilet, cart, office chair, couch, grandfather clock, upright piano, pool flamingo, vending machine, clawfoot tub, giant teddy, disco ball, inflatable tube man
 js/prompt.js     the object-design prompt (shared with the Worker)
 js/fracture.js   convex-chunk shattering
 js/particles.js  juice, sparks, confetti, smoke
