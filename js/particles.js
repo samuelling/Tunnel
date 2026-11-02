@@ -1,7 +1,7 @@
 // Spray: juice, sparks, confetti, glass, smoke tracers… simple drag particles that ride the
 // same air model as the rigid bodies, splat on the floor and stick to the tube walls.
 import * as THREE from 'three';
-import { TUN } from './config.js';
+import { TUN, PORTAL } from './config.js';
 
 const TYPES = {
   juice: { col: '#d4142a', size: 0.026, drag: 2.2, grav: 1, stick: 1, life: 9 },
@@ -113,7 +113,7 @@ export class Particles {
       P.life[i] -= dt;
       const ix = i * 3;
       let x = P.pos[ix], y = P.pos[ix + 1], z = P.pos[ix + 2];
-      if (P.life[i] <= 0 || x > L + 14 || y < -2 || Math.abs(z) > 40) { P.count--; P.copy(i, P.count); i--; continue; }
+      if (P.life[i] <= 0 || x > TUN.groundX + 0.5 || x < -40 || Math.abs(y) > 40 || Math.abs(z) > 40) { P.count--; P.copy(i, P.count); i--; continue; }
       const fade = Math.min(1, P.life[i] / Math.min(1.5, P.max[i] * 0.5));
       if (P.grow[i]) P.size[i] = P.base[i] * (1 + 1.5 * (1 - P.life[i] / P.max[i]));
       P.col[i * 4 + 3] = P.a0[i] * fade;
@@ -121,8 +121,8 @@ export class Particles {
       if (P.turb[i]) air.vel(x, y, z, u, true); else air.mean(x, y, z, u);
       const k = P.drag[i];
       let vx = P.vel[ix], vy = P.vel[ix + 1], vz = P.vel[ix + 2];
-      vx = (vx + dt * k * u[0]) / (1 + dt * k);
-      vy = (vy + dt * (k * u[1] - 9.81 * P.grav[i])) / (1 + dt * k);
+      vx = (vx + dt * (k * u[0] + 9.81 * P.grav[i])) / (1 + dt * k);
+      vy = (vy + dt * k * u[1]) / (1 + dt * k);
       vz = (vz + dt * k * u[2]) / (1 + dt * k);
       if (P.flut[i]) { const f = P.flut[i] * 6; vx += (Math.random() - 0.5) * f * dt * 10; vy += (Math.random() - 0.5) * f * dt * 10; vz += (Math.random() - 0.5) * f * dt * 10; }
       const nx = x + vx * dt, ny = y + vy * dt, nz = z + vz * dt;
@@ -136,11 +136,14 @@ export class Particles {
         P.vel[ix] = vx; P.vel[ix + 1] = vy; P.vel[ix + 2] = vz;
         continue;
       }
-      if (ny < 0.004) {
-        if (P.stick[i]) { P.stuck[i] = 1; P.pos[ix] = nx; P.pos[ix + 1] = 0.004; P.pos[ix + 2] = nz; P.life[i] = Math.min(P.life[i], 5 + Math.random() * 4); continue; }
-        vy = Math.abs(vy) * 0.3;
+      const gX = TUN.groundX - 0.004;
+      if (nx > gX) {
+        // into the portal: gone; elsewhere: splat on the floor
+        if (Math.hypot(ny, nz) < PORTAL.R) { P.life[i] = 0; continue; }
+        if (P.stick[i]) { P.stuck[i] = 1; P.pos[ix] = gX; P.pos[ix + 1] = ny; P.pos[ix + 2] = nz; P.life[i] = Math.min(P.life[i], 5 + Math.random() * 4); continue; }
+        vx = -Math.abs(vx) * 0.3;
       }
-      P.pos[ix] = nx; P.pos[ix + 1] = Math.max(0.004, ny); P.pos[ix + 2] = nz;
+      P.pos[ix] = Math.min(gX, nx); P.pos[ix + 1] = ny; P.pos[ix + 2] = nz;
       P.vel[ix] = vx; P.vel[ix + 1] = vy; P.vel[ix + 2] = vz;
     }
     P.geo.setDrawRange(0, P.count);

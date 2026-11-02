@@ -7,7 +7,7 @@
 //  • Free-stream turbulence as a sum of random Fourier modes that are divergence-free by
 //    construction (amplitude ⟂ wavevector), with a Kolmogorov-like k^-5/6 amplitude spectrum,
 //    advected with the flow (Taylor's frozen-turbulence hypothesis).
-import { TUN, FAN, NU } from './config.js';
+import { TUN, FAN, NU, PORTAL } from './config.js';
 
 export class Air {
   constructor() {
@@ -80,12 +80,19 @@ export class Air {
       const mag = U * R * R / (R * R + 1.8 * d2);
       ux = -ddx / d * mag; uy = -dy / d * mag; uz = -dz / d * mag;
       tf = 0.35 * mag / U;
-    } else {                                         // exit jet, spreading ~12% per length
+    } else {                                         // exit jet, spreading ~12% per length…
       const xe = x - L, width = R * (1 + 0.12 * xe);
       const k = (R / width) * Math.exp(-1.5 * (r / width) ** 2);
       ux = 1.1 * U * k;
       if (r > 1e-3) { const sw = 0.25 * U * k * Math.sign(this.omega || 1); uy += -sw * dz / r; uz += sw * dy / r; }
       tf = 1.4 * k;
+      // …feeding the portal's vortex: a Lamb–Oseen-like swirl with inflow and downdraft,
+      // strengthening towards the floor
+      const s = Math.min(1, Math.max(0, xe / (TUN.groundX - L)));
+      const rc = 0.9, g = 4 + 0.25 * U, swirl = g * r / (r * r + rc * rc) * (0.4 + s);
+      const sink = (1.5 + 0.08 * U) * s * Math.min(1, r / rc) * Math.exp(-((r / (PORTAL.R * 1.6)) ** 2));
+      if (r > 1e-3) { uy += (-swirl * dz - sink * dy) / r; uz += (swirl * dy - sink * dz) / r; }
+      ux += (2 + 0.1 * U) * s * Math.exp(-((r / PORTAL.R) ** 2));
     }
     out[0] = ux; out[1] = uy; out[2] = uz; out[3] = tf;
     return out;

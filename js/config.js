@@ -3,13 +3,18 @@ export const RHO = 1.204;       // air density, kg/m^3 (20 °C)
 export const NU = 1.516e-5;     // kinematic viscosity, m^2/s
 export const G = 9.81;
 
+// The tunnel stands vertically. Physics runs in a "tube frame": x runs DOWN the tube axis
+// (intake at x = 0 at the top, exit at x = L), gravity is +x, and the floor with the portal is the
+// plane x = groundX. The renderer rotates this frame upright (world y = groundX − x).
 export const TUN = {
   R: 2.4,          // tube inner radius
-  L: 18,           // tube length (intake at x = 0, exit at x = L)
-  y0: 3.0,         // height of the tube axis
-  fanX: 16.0,      // fan disc position
+  L: 12,           // tube length
+  y0: 0,           // tube axis offset (axis passes through y = z = 0)
+  fanX: 10.4,      // fan disc position
+  groundX: 15.4,   // the floor (and the portal in it)
   wall: 0.1,
 };
+export const PORTAL = { R: 3.4 };
 
 export const FAN = {
   blades: 6,

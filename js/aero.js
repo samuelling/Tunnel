@@ -147,6 +147,6 @@ export function aeroLoads(rec, air, t, q, v, w, out) {
       }
     }
   }
-  out[1] += RHO * rec.volume * G;   // buoyancy
+  out[0] -= RHO * rec.volume * G;   // buoyancy (gravity points along +x in the tube frame)
   return out;
 }

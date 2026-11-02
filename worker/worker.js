@@ -1,6 +1,8 @@
-// Tunnel ⇄ Claude: a tiny proxy so the public GitHub Pages site can have Claude design objects
-// without exposing an API key. The browser sends only {"object": "<short name>"}; the prompt is
-// built here, so the endpoint can't be used as a general-purpose Claude proxy.
+// The Shred Hole's little helper on Cloudflare:
+//  POST /          {"object": "<short name>"} → Claude designs it (the key stays here; the prompt
+//                  is built here too, so this can't be used as a general-purpose Claude proxy)
+//  POST /drops     a debris drop from the portal → kept in KV for World Builder
+//  GET  /drops?since=<ms>  → { now, drops } for World Builder to collect (any origin may read)
 import { recipePrompt } from '../js/prompt.js';
 
 const DEFAULT_ORIGINS = ['https://samuelling.github.io'];
@@ -8,7 +10,7 @@ const DEFAULT_ORIGINS = ['https://samuelling.github.io'];
 function corsHeaders(origin, ok) {
   return {
     'Access-Control-Allow-Origin': ok ? origin : 'null',
-    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
     'Access-Control-Allow-Headers': 'content-type',
     'Vary': 'Origin',
   };
@@ -23,7 +25,9 @@ export default {
     const reply = (body, status = 200) => new Response(typeof body === 'string' ? body : JSON.stringify(body), {
       status, headers: { ...cors, 'content-type': typeof body === 'string' ? 'text/plain' : 'application/json' } });
 
-    if (req.method === 'OPTIONS') return new Response(null, { headers: cors });
+    if (req.method === 'OPTIONS') return new Response(null, { headers: { ...cors, 'Access-Control-Allow-Origin': origin || '*', 'Access-Control-Allow-Private-Network': 'true' } });
+    const url = new URL(req.url);
+    if (url.pathname.replace(/\/$/, '') === '/drops') return drops(req, env, url, ok, origin);
     if (req.method !== 'POST') return reply('POST only', 405);
     if (!ok) return reply('origin not allowed', 403);
 
@@ -59,3 +63,33 @@ export default {
     return new Response(body, { headers: { ...cors, 'content-type': 'application/json', 'x-cache': 'miss' } });
   },
 };
+
+// ---------------------------------------------------------------- the portal's mailbox
+const KEEP = 300;
+async function drops(req, env, url, ok, origin) {
+  const headers = { 'Access-Control-Allow-Origin': origin || '*', 'Vary': 'Origin', 'content-type': 'application/json', 'cache-control': 'no-store' };
+  if (!env.DROPS) return new Response(JSON.stringify({ error: 'mailbox not configured (bind a KV namespace as DROPS)' }), { status: 501, headers });
+  const list = JSON.parse((await env.DROPS.get('recent')) || '[]');
+  if (req.method === 'GET') {
+    const since = +url.searchParams.get('since') || 0;
+    return new Response(JSON.stringify({ now: Date.now(), drops: list.filter(d => d.at > since) }), { headers });
+  }
+  if (req.method !== 'POST') return new Response('{}', { status: 405, headers });
+  if (!ok) return new Response(JSON.stringify({ error: 'origin not allowed' }), { status: 403, headers });
+  if (env.LIMITER) {
+    const { success } = await env.LIMITER.limit({ key: 'd:' + (req.headers.get('CF-Connecting-IP') || 'anon') });
+    if (!success) return new Response(JSON.stringify({ error: 'the portal needs a breather' }), { status: 429, headers });
+  }
+  const text = await req.text();
+  if (text.length > 300000) return new Response(JSON.stringify({ error: 'too big' }), { status: 413, headers });
+  let d;
+  try { d = JSON.parse(text); } catch (e) { return new Response(JSON.stringify({ error: 'bad json' }), { status: 400, headers }); }
+  if (!d || !Array.isArray(d.pieces) || !d.pieces.length) return new Response(JSON.stringify({ error: 'no pieces' }), { status: 400, headers });
+  d.pieces = d.pieces.slice(0, 120);
+  d.id = crypto.randomUUID();
+  d.at = Math.max(Date.now(), (list[list.length - 1]?.at || 0) + 1);
+  list.push(d);
+  while (list.length > KEEP || JSON.stringify(list).length > 20e6) list.shift();
+  await env.DROPS.put('recent', JSON.stringify(list));
+  return new Response(JSON.stringify({ id: d.id, at: d.at }), { status: 201, headers });
+}

@@ -13,3 +13,9 @@ MODEL = "claude-sonnet-5-5"
 name = "LIMITER"
 namespace_id = "1001"
 simple = { limit = 6, period = 60 }
+
+# The portal's mailbox. Create it with:  wrangler kv namespace create DROPS
+# then paste the id it prints here.
+[[kv_namespaces]]
+binding = "DROPS"
+id = "PASTE_KV_NAMESPACE_ID_HERE"

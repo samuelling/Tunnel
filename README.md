@@ -1,6 +1,6 @@
-# Tunnel: the Shred Hole
+# Shred Hole (Vortex Portal)
 
-A giant 3D wind tunnel with a 4.6-metre fan at the end. Pick something, throw it in and find out: **will it blend?**
+A 15-metre vertical wind tower with a 4.6-metre fan at the bottom. Drop something in, gravity and a 40 m/s downdraft feed it to the blades, and find out: **will it blend?** Whatever comes out falls into a vortex portal in the floor and is delivered to Matt's [World Builder](https://github.com/CrumpLabSandbox/Worldbuilder), where it falls out of a matching portal in the sky onto the Shred Pile.
 
 Silly premise, real physics underneath. The scientific 2D version (lattice-Boltzmann CFD) lives on in [`/lab`](lab/).
 
@@ -23,7 +23,25 @@ The HUD shows wind speed (with its Beaufort number), fan rpm, motor power, blade
 ## Controls
 
 - Pick an object in the tray, then **flick** on the scene to throw it (or tap / press space for a gentle toss). Two fingers or right-drag to look around.
-- **FAN** slider sets the wind. 🎥 cycles cameras (Overview, Feeder, Blades, Window, Exit, Follow). 🐢 slow motion. ⏱️ auto bullet-time right before the chop. 💨 smoke tracers. 🎲 chaos.
+- **FAN** slider sets the wind. 🎥 cycles cameras (Overview, Hopper, Blades, Window, Portal, Follow). 🐢 slow motion. ⏱️ auto bullet-time right before the chop. 💨 smoke tracers. 🎲 chaos.
+
+## The portal → World Builder
+
+Debris falling below the tube is caught by the portal's vortex (a swirling inflow in the air model, plus a pull on heavier pieces) and spirals into the floor. Each object's pieces are packed into a **debris drop**, which is sent once the object has been judged:
+
+```json
+{ "v": 1, "id": "…", "at": 1793660524134, "source": "shred-hole",
+  "object": { "name": "Watermelon", "icon": "🍉", "verdict": "IT BLENDS!", "quip": "…", "mass": 7 },
+  "spray": "juice", "colors": ["#2e7d32", "#ff3b4a"],
+  "pieces": [ { "c": "#2e7d32", "i": "#ff3b4a", "m": 0.31,
+                "p": [x, y, z, …],      // convex-hull points, metres, piece frame
+                "q": [x, y, z, w],      // orientation entering the portal (world, y up)
+                "o": [x, y, z],         // offset from the object's centre (0 for loose chunks)
+                "v": [vx, vy, vz] } ],  // velocity entering the portal (m/s)
+  "particles": { "count": 0, "colors": ["#ff3b4a"] } }
+```
+
+Drops go to `WORKER_URL/drops` (the Cloudflare Worker's KV mailbox) and to any URLs in `DROP_URLS` (`js/settings.js`). To test, you can also open the page with `?drop=<url>`. World Builder's server speaks the same API (`POST`/`GET /api/shred/drops`), so a deployed World Builder can be posted to directly. Undelivered drops are kept in the browser. The Claude-hosted copy of the page can't send data to other sites, so its portal keeps everything locally.
 
 ## Type anything (Claude designs the object)
 
@@ -45,7 +63,8 @@ There are two ways the page can reach Claude:
    wrangler secret put ANTHROPIC_API_KEY
    wrangler deploy
    ```
-3. Paste the printed `https://tunnel-claude.<you>.workers.dev` URL into `js/settings.js` and push. To test before pushing, open the site once with `?worker=<url>`.
+3. For the portal mailbox, run `wrangler kv namespace create DROPS`, paste the id into `wrangler.toml`, then `wrangler deploy` again.
+4. Paste the printed `https://tunnel-claude.<you>.workers.dev` URL into `js/settings.js` and push. To test before pushing, open the site once with `?worker=<url>`. World Builder collects from `<url>/drops`: set it as the Shred Pile record's `relay`.
 
 `worker/wrangler.toml` sets the allowed origin, the model (Sonnet by default; Haiku is cheaper) and the rate limit.
 
@@ -64,6 +83,7 @@ js/particles.js  juice, sparks, confetti, smoke
 js/audio.js      synthesised sound
 js/scene.js      hangar, tunnel, static colliders
 js/claude.js     Claude connection (artifact or Worker)
+js/portal.js     debris-drop packing and delivery
 worker/          Cloudflare Worker for the GitHub Pages version
 lib/             vendored three.js r187 and Rapier 0.21 (MIT / Apache-2.0)
 lab/             the original 2D lattice-Boltzmann wind tunnel

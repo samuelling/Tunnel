@@ -4,11 +4,12 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { ConvexGeometry } from 'three/addons/geometries/ConvexGeometry.js';
 import RAPIER from '../lib/rapier.mjs';
-import { TUN, FAN, RHO, NU, G, beaufort } from './config.js';
+import { TUN, FAN, RHO, NU, G, PORTAL, beaufort } from './config.js';
 import { Air } from './air.js';
 import { aeroLoads, makePanels } from './aero.js';
 import { Rotor, buildFan, bladeSweep, bladeAngle } from './fan.js';
-import { createRenderer, buildScene, buildColliders } from './scene.js';
+import { createRenderer, buildScene, buildColliders, toWorld } from './scene.js';
+import { DropCollector, packPoints, dropTargets } from './portal.js';
 import { CATALOG, buildObject, sanitizeRecipe, recipePrompt, MATERIALS } from './objects.js';
 import { shatterMesh, chunkMaterial } from './fracture.js';
 import { Particles } from './particles.js';
@@ -20,7 +21,8 @@ const isTouch = matchMedia('(pointer: coarse)').matches;
 const MAX_BODIES = isTouch ? 170 : 260;
 const DT = 1 / 180;
 
-let renderer, scene, camera, controls, world, eventQueue, air, rotor, fan, particles, tunnel;
+let renderer, scene, rig, portal, camera, controls, world, eventQueue, air, rotor, fan, particles, tunnel, drops;
+const absorbing = [];
 const audio = new Audio();
 const bodies = [];
 const byCollider = new Map();
@@ -37,14 +39,14 @@ async function boot() {
     await RAPIER.init();
   } catch (e) { fail('Physics engine failed to load (' + e.message + ').'); return; }
   renderer = createRenderer($('c'), isTouch);
-  ({ scene, tunnel } = buildScene(renderer));
+  ({ scene, rig, tunnel, portal } = buildScene(renderer));
   camera = new THREE.PerspectiveCamera(48, 1, 0.05, 200);
   controls = new OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true; controls.dampingFactor = 0.08;
   controls.maxPolarAngle = Math.PI * 0.495; controls.minDistance = 1; controls.maxDistance = 45;
   setCamera(0, true);
 
-  world = new RAPIER.World({ x: 0, y: -G, z: 0 });
+  world = new RAPIER.World({ x: G, y: 0, z: 0 });   // tube frame: gravity points down the axis (+x)
   world.timestep = DT;
   world.integrationParameters.numSolverIterations = 6;
   eventQueue = new RAPIER.EventQueue(true);
@@ -53,8 +55,14 @@ async function boot() {
   air = new Air();
   rotor = new Rotor();
   fan = buildFan();
-  scene.add(fan.group);
-  particles = new Particles(scene);
+  rig.add(fan.group);
+  particles = new Particles(rig);
+  drops = new DropCollector({
+    onJudge: (root) => { verdict(root); root.done = true; },
+    onSent: (d) => (showTally(), toast(`🌀 ${d.object.icon} ${d.object.name}: ${d.pieces.length} pieces delivered to World Builder`)),
+    onParked: (d) => (showTally(), toast(`🌀 ${d.object.icon} ${d.object.name} went through the portal (World Builder link not set up yet)`)),
+    onFail: (d) => toast(`🌀 ${d.object.name} went through, but World Builder didn't answer. Kept it for later.`),
+  });
 
   buildUI();
   showTally();
@@ -79,12 +87,13 @@ function resize() {
 }
 
 // ------------------------------------------------------------------------------- cameras
+const GX = TUN.groundX, FY = TUN.groundX - TUN.fanX;
 const CAMS = [
-  { name: 'Overview', pos: [-5.5, 7.5, 15], tgt: [8, 2.6, 0] },
-  { name: 'Feeder', pos: [-7.5, 3.9, 2.2], tgt: [10, 3, 0] },
-  { name: 'Blades', pos: [TUN.fanX - 4.2, TUN.y0 + 0.7, 1.1], tgt: [TUN.fanX, TUN.y0 - 0.2, 0] },
-  { name: 'Window', pos: [TUN.fanX - 3.2, TUN.y0 + 0.6, 5.2], tgt: [TUN.fanX - 0.8, TUN.y0, 0] },
-  { name: 'Exit', pos: [TUN.L + 7, 4.5, 5], tgt: [TUN.fanX, 3, 0] },
+  { name: 'Overview', pos: [22, 8.5, 12], tgt: [0, 7.4, 0] },
+  { name: 'Hopper', pos: [3.4, GX + 5.5, 4.2], tgt: [0, GX - 5, 0] },
+  { name: 'Blades', pos: [0.7, FY + 3.6, 1.0], tgt: [0, FY - 0.3, 0] },
+  { name: 'Window', pos: [6.2, FY + 1.0, 1.2], tgt: [0, FY + 0.2, 0] },
+  { name: 'Portal', pos: [8.2, 2.3, 0.9], tgt: [0, 1.6, 0] },
   { name: 'Follow', follow: true },
 ];
 let camTween = null;
@@ -149,21 +158,23 @@ function createBody({ recipe, group, parts, pos, quat, vel, angvel, level, root,
   rec.impact = impact;
   const pi = body.principalInertia();
   rec.Imin = Math.max(1e-9, Math.min(pi.x, pi.y, pi.z));
-  scene.add(group);
+  rig.add(group);
   group.position.copy(pos); group.quaternion.copy(quat);
   bodies.push(rec);
   root.live.add(rec);
   return rec;
 }
 
-function removeBody(rec, reason) {
+function removeBody(rec, reason, keepMesh = false) {
   const i = bodies.indexOf(rec);
   if (i < 0) return;
   bodies.splice(i, 1);
   for (const h of rec.colliders) byCollider.delete(h);
   world.removeRigidBody(rec.body);
-  scene.remove(rec.group);
-  rec.group.traverse(o => { if (o.isMesh && o.userData.ownGeo) o.geometry.dispose(); });
+  if (!keepMesh) {
+    rig.remove(rec.group);
+    rec.group.traverse(o => { if (o.isMesh && o.userData.ownGeo) o.geometry.dispose(); });
+  }
   rec.root.live.delete(rec);
   if (reason === 'exit') rec.root.exitedMax = Math.max(rec.root.exitedMax, rec.mass);
   if (reason === 'dissolve') rec.root.dissolved += rec.mass;
@@ -232,7 +243,7 @@ function breakBody(rec, E, vNew, hitPoint, quiet = false) {
 
   const severity = E / Math.max(r.toughness * (rec.level ? Math.pow(rec.mass / root.mass0 * (r.count || 1), 0.66) : 1), 1e-3);
   const separate = rec.level === 0 && rec.parts.length > 1 && severity < 2.5;
-  scene.remove(rec.group);
+  rig.remove(rec.group);
   const parts = rec.parts;
   if (rec.level > 0) root.pieces = Math.max(0, root.pieces - 1);
   removeBody(rec, 'broken');
@@ -315,6 +326,17 @@ function physicsStep(dt) {
       b.applyImpulse({ x: loads[0] * s * dt, y: loads[1] * s * dt, z: loads[2] * s * dt }, true);
       b.applyTorqueImpulse({ x: loads[3] * st * dt, y: loads[4] * st * dt, z: loads[5] * st * dt }, true);
     }
+  }
+
+  // the portal's pull: below the tube, things are drawn towards the axis and spun round it
+  for (const rec of bodies) {
+    const t = rec.body.translation();
+    if (t.x < TUN.L) continue;
+    const r = Math.hypot(t.y, t.z) + 1e-6, s = Math.min(1, (t.x - TUN.L) / (TUN.groundX - TUN.L));
+    if (r > PORTAL.R * 2.2) continue;
+    const a = (3 + 6 * s) * Math.min(1, r / 0.8), sw = 4 * s;
+    const m = rec.mass * dt;
+    rec.body.applyImpulse({ x: 2 * s * m, y: (-a * t.y / r - sw * t.z / r) * m, z: (-a * t.z / r + sw * t.y / r) * m }, true);
   }
 
   world.step(eventQueue);
@@ -416,7 +438,7 @@ function addTally(root, score, pieces) {
   try { localStorage.setItem('shredTally', JSON.stringify(tally)); } catch (e) {}
   showTally();
 }
-function showTally() { const el = $('tally'); if (el) el.textContent = tally.n ? `Shredded so far: ${tally.n} things · ${tally.kg < 1 ? Math.round(tally.kg * 1000) + ' g' : tally.kg.toFixed(1) + ' kg'} · ${tally.pieces.toLocaleString()} pieces` : ''; }
+function showTally() { const el = $('tally'); if (el) el.textContent = (drops && drops.sentPieces ? `🌀 ${drops.sentPieces.toLocaleString()} pieces through the portal · ` : '') + (tally.n ? `Shredded so far: ${tally.n} things · ${tally.kg < 1 ? Math.round(tally.kg * 1000) + ' g' : tally.kg.toFixed(1) + ' kg'} · ${tally.pieces.toLocaleString()} pieces` : ''); }
 
 function verdict(root) {
   let largest = root.exitedMax;
@@ -434,12 +456,37 @@ function verdict(root) {
   if (largest > 0 && score > 0.05) parts.push(`biggest ${fmtMass(largest)}`);
   parts.push(`hit ${fmtE(root.maxE)}`);
   if (root.rpmDrop > 1) parts.push(`fan −${Math.round(root.rpmDrop)} rpm`);
+  root.verdictHead = head; root.verdictQuip = quip;
   showVerdict(r, head, quip, parts.join(' · '));
   if (!r.unbreakable) addTally(root, score, Math.max(n, root.pieces));
 }
 
 const fmtMass = (m) => m >= 1 ? `${m.toFixed(1)} kg` : `${Math.round(m * 1000)} g`;
 const fmtE = (e) => e >= 1000 ? `${(e / 1000).toFixed(1)} kJ` : `${e.toFixed(e < 10 ? 1 : 0)} J`;
+
+// ------------------------------------------------------------------------------- portal
+let lastWhoosh = 0;
+function absorb(rec) {
+  if (rec.dead) return;
+  rec.dead = true;
+  const t = rec.body.translation(), v = rec.body.linvel(), q = rec.body.rotation();
+  const root = rec.root;
+  const tmpQ = new THREE.Quaternion(q.x, q.y, q.z, q.w);
+  // world orientation = rig rotation ∘ body orientation
+  const wq = rig.quaternion.clone().multiply(tmpQ);
+  const pieces = rec.parts.map(p => {
+    const off = p.center.clone().applyQuaternion(wq);
+    return { c: p.color || '#999999', i: rec.recipe.inner || p.color || '#999999', m: +p.mass.toFixed(4),
+      p: packPoints(p.points.map(v3 => v3.clone().sub(p.center))),
+      o: [+off.x.toFixed(3), +off.y.toFixed(3), +off.z.toFixed(3)],
+      v: [+(v.y).toFixed(2), +(-v.x).toFixed(2), +(v.z).toFixed(2)], q: [wq.x, wq.y, wq.z, wq.w].map(x => +x.toFixed(4)) };
+  });
+  drops.add(root, pieces);
+  removeBody(rec, 'portal', true);
+  absorbing.push({ group: rec.group, t: 0, x0: t.x, r0: Math.hypot(t.y, t.z), a0: Math.atan2(t.z, t.y), spinAxis: new THREE.Vector3().randomDirection() });
+  portal.flash(Math.min(0.6, 0.08 + rec.mass * 0.05));
+  if (performance.now() - lastWhoosh > 180) { audio.whoosh(rec.mass); lastWhoosh = performance.now(); }
+}
 
 // ------------------------------------------------------------------------------- loop
 let last = performance.now(), acc = 0, frames = 0;
@@ -472,18 +519,34 @@ function loop(now) {
     const t = rec.body.translation(), q = rec.body.rotation();
     rec.group.position.set(t.x, t.y, t.z);
     rec.group.quaternion.set(q.x, q.y, q.z, q.w);
-    if (t.x > TUN.L + 30 || t.y < -2 || Math.abs(t.z) > 35 || t.x < -30) removeBody(rec, 'exit');
-    else if (rec.level > 0 && t.y < 0.6 && simTime - rec.born > 90 && (t.x < 0 || t.x > TUN.L)) removeBody(rec, 'dissolve');
+    const rr = Math.hypot(t.y, t.z);
+    if (t.x > TUN.groundX - 1.4 - rec.radius && rr < PORTAL.R * 0.95) absorb(rec);
+    else if (t.x > TUN.groundX + 2 || t.x < -40 || Math.abs(t.y) > 40 || Math.abs(t.z) > 40) removeBody(rec, 'exit');
+    else if (rec.level > 0 && t.x > TUN.groundX - 0.8 && simTime - rec.born > 90) removeBody(rec, 'dissolve');
   }
   checkVerdicts();
 
   if (smokeOn && air.U > 0.3) {
     for (let k = 0; k < 6; k++) {
       const a = Math.random() * Math.PI * 2, rr = Math.sqrt(Math.random()) * 3.4;
-      particles.emit('smoke', { x: -1.8, y: TUN.y0 + Math.cos(a) * rr, z: Math.sin(a) * rr }, { x: 0, y: 0, z: 0 }, 1, 0.05);
+      particles.emit('smoke', { x: -1.6, y: Math.cos(a) * rr, z: Math.sin(a) * rr }, { x: 0, y: 0, z: 0 }, 1, 0.05);
     }
   }
   particles.update(fdt * ts, air);
+
+  // things falling into the portal: spiral in, shrink, gone
+  for (let i = absorbing.length - 1; i >= 0; i--) {
+    const e = absorbing[i];
+    e.t += fdt * Math.max(ts, 0.3);
+    const k = Math.min(1, e.t / 0.9);
+    const ang = e.a0 + k * k * 9, rad = e.r0 * (1 - k);
+    e.group.position.set(e.x0 + k * 1.4 + 0.6 * k * k, Math.cos(ang) * rad, Math.sin(ang) * rad);
+    e.group.rotateOnAxis(e.spinAxis, fdt * 9);
+    e.group.scale.setScalar(Math.max(0.001, 1 - k * k));
+    if (k >= 1) { rig.remove(e.group); e.group.traverse(o => { if (o.isMesh && o.userData.ownGeo) o.geometry.dispose(); }); absorbing.splice(i, 1); }
+  }
+  drops.tick();
+  portal.update(now / 1000, fdt);
 
   // fan visuals
   fan.rotor.rotation.x = rotor.theta;
@@ -494,7 +557,7 @@ function loop(now) {
   const on = rotor.setpoint > 0 || sp > 1;
   tunnel.beaconMat.emissiveIntensity = on ? 0.6 + 2 * Math.max(0, Math.sin(now / 160)) : 0.1;
   tunnel.beaconLight.intensity = on ? 30 : 0;
-  tunnel.beaconLight.target.position.set(tunnel.beacon.position.x + Math.cos(now / 300) * 6, 0, Math.sin(now / 300) * 6);
+  tunnel.beaconLight.target.position.set(tunnel.beacon.position.x + Math.cos(now / 300) * 8, tunnel.beacon.position.y - 6, Math.sin(now / 300) * 8);
 
   // camera
   if (camTween) {
@@ -508,7 +571,7 @@ function loop(now) {
     let best = null;
     for (const rec of lastRoot.live) if (!best || rec.mass > best.mass) best = rec;
     if (best) {
-      const p = best.group.position;
+      const p = best.group.getWorldPosition(new THREE.Vector3());
       const d = new THREE.Vector3(-3.2, 1.4, 2.6);
       controls.target.lerp(p, 0.12);
       camera.position.lerp(p.clone().add(d), 0.06);
@@ -663,41 +726,40 @@ function showCard(r) {
 }
 
 const ray = new THREE.Raycaster();
+const qInv = () => rig.quaternion.clone().invert();
 function throwArmed(sx, sy, swipe) {
   if (!armed) return;
   audio.start();
-  // aim: where the pointer ray meets the plane x = −1.8 just in front of the intake
+  // aim: where the pointer ray meets a level plane just above the intake (world space)
   const ndc = new THREE.Vector2(sx / innerWidth * 2 - 1, -(sy / innerHeight) * 2 + 1);
   ray.setFromCamera(ndc, camera);
-  const plane = new THREE.Plane(new THREE.Vector3(1, 0, 0), 1.8);
-  let pos = new THREE.Vector3();
-  if (!ray.ray.intersectPlane(plane, pos) || pos.distanceTo(camera.position) > 40) pos.set(-1.8, TUN.y0 + 0.4, 0);
-  // keep it near the intake mouth
-  const dy = pos.y - TUN.y0, dz = pos.z, rr = Math.hypot(dy, dz), lim = TUN.R + 1.2;
-  if (rr > lim) { pos.y = TUN.y0 + dy * lim / rr; pos.z = dz * lim / rr; }
-  pos.y = Math.max(0.4, pos.y);
-  if (camera.position.x > 0 && camera.position.x < TUN.L && Math.hypot(camera.position.y - TUN.y0, camera.position.z) < TUN.R) {
-    // camera is inside the tube: launch from just in front of it
-    pos = camera.position.clone().add(ray.ray.direction.clone().multiplyScalar(1.2));
-  }
-  let vel = new THREE.Vector3(4.5, 1.2, 0);
+  const topY = TUN.groundX + 1.4;
+  const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -topY);
+  let wp = new THREE.Vector3();
+  if (!ray.ray.intersectPlane(plane, wp) || wp.distanceTo(camera.position) > 60) wp.set((Math.random() - 0.5) * 1.5, topY, (Math.random() - 0.5) * 1.5);
+  const rr = Math.hypot(wp.x, wp.z), lim = TUN.R - 0.5;
+  if (rr > lim) { wp.x *= lim / rr; wp.z *= lim / rr; }
+  wp.y = topY;
+  // launching from inside the tube (Blades camera): drop it just in front of the lens
+  const cl = rig.worldToLocal(camera.position.clone());
+  if (cl.x > 0 && cl.x < TUN.L && Math.hypot(cl.y, cl.z) < TUN.R) wp = camera.position.clone().add(ray.ray.direction.clone().multiplyScalar(1.2));
+  let wv = new THREE.Vector3((Math.random() - 0.5) * 0.8, -1.5, (Math.random() - 0.5) * 0.8);
   if (swipe) {
     const right = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 0);
     const up = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 1);
     const k = 0.012;
-    const sp = Math.min(30, Math.hypot(swipe.x, swipe.y) * k);
-    vel = right.multiplyScalar(swipe.x * k).add(up.multiplyScalar(-swipe.y * k));
-    vel.x += 3 + sp * 0.6;
-    if (vel.length() > 30) vel.setLength(30);
+    wv = right.multiplyScalar(swipe.x * k).add(up.multiplyScalar(-swipe.y * k));
+    wv.y -= 2;
+    if (wv.length() > 30) wv.setLength(30);
   }
-  spawnRecipe(armed, pos, vel);
+  spawnRecipe(armed, rig.worldToLocal(wp), wv.applyQuaternion(qInv()));
 }
 
 function chaos() {
   const list = recipes.filter(r => r.id !== 'anvil');
   for (let i = 0; i < 8; i++) setTimeout(() => {
     const r = list[(Math.random() * list.length) | 0];
-    spawnRecipe(r, new THREE.Vector3(-1.8, TUN.y0 + (Math.random() - 0.3) * 2, (Math.random() - 0.5) * 3), new THREE.Vector3(4 + Math.random() * 3, 1 + Math.random() * 2, (Math.random() - 0.5) * 2));
+    spawnRecipe(r, new THREE.Vector3(-1.4, (Math.random() - 0.5) * 2.6, (Math.random() - 0.5) * 2.6), new THREE.Vector3(1 + Math.random() * 2, (Math.random() - 0.5) * 2, (Math.random() - 0.5) * 2));
   }, i * 260);
   if (rotor.setpoint < 0.3) { $('throttle').value = 80; $('throttle').oninput(); }
   toast('CHAOS');
@@ -801,6 +863,6 @@ function addGenerated(raw) {
   return r;
 }
 
-window.tunnel = { addRecipe: addGenerated, get bodies() { return bodies; }, rotor: () => rotor, air: () => air, spawn: (id, x = -1.8) => spawnRecipe(recipes.find(r => r.id === id), new THREE.Vector3(x, TUN.y0 + 0.3, 0), new THREE.Vector3(5, 1, 0)), setThrottle: (v) => { $('throttle').value = v; $('throttle').oninput(); }, setCamera, arm: (id) => arm(recipes.find(r => r.id === id)) };
+window.tunnel = { addRecipe: addGenerated, get bodies() { return bodies; }, rotor: () => rotor, air: () => air, spawn: (id, x = -1.4) => spawnRecipe(recipes.find(r => r.id === id), new THREE.Vector3(x, (Math.random() - 0.5) * 0.6, (Math.random() - 0.5) * 0.6), new THREE.Vector3(2, 0, 0)), get drops() { return drops; }, setThrottle: (v) => { $('throttle').value = v; $('throttle').oninput(); }, setCamera, arm: (id) => arm(recipes.find(r => r.id === id)) };
 
 boot().catch(e => { console.error(e); fail(e.message); });

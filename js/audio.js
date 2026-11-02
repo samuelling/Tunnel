@@ -90,5 +90,11 @@ export class Audio {
     }
   }
   chop(e) { if (!this.ctx || !this.enabled) return; const L = Math.min(1, 0.3 + Math.log10(1 + e) / 3); this._tone(95, 38, 0.18, 0.7 * L); this._noise(0.12, 'bandpass', 1800, 1.2, 0.5 * L); }
+  whoosh(m = 1) {
+    if (!this.ctx || !this.enabled) return;
+    const L = Math.min(1, 0.35 + Math.log10(1 + m * 10) / 3);
+    this._tone(420, 55, 0.7, 0.18 * L, 'sine'); this._tone(640, 80, 0.6, 0.08 * L, 'triangle', 0.03);
+    this._noise(0.6, 'bandpass', 900, 0.8, 0.35 * L);
+  }
   sparks() { if (!this.ctx || !this.enabled) return; this._noise(0.35, 'highpass', 5000, 0.8, 0.35); }
 }
