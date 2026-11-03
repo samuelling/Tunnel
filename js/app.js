@@ -809,6 +809,8 @@ function openPayloadHatch(why) {
   audio.start(); audio.hit('clang', 1.5e4); setTimeout(() => audio.whoosh(40), 250);
   hatchState = 'opening'; hatchT = 0;
   drops.hold = true;
+  // flip mode: get Pile Cam going now (so the payload is caught as it's sent), slide over once the doors are open
+  if (flipping() && !onPile && $('paneSrc').value !== 'live') { pileCam?.start(); setTimeout(() => showPile(true), 1300); }
   for (const c of hatchColliders) c.setEnabled(false);
   thawHatch();
   for (const b of bodies) if (onHatch(b)) b.body.wakeUp();
@@ -915,7 +917,7 @@ const TOOL_TIPS = {
   btnSound: ['Sound', 'Mute or unmute'],
   btnChaos: ['Chaos', 'Throw 8 random things at once'],
   btnShare: ['Share your pile', 'Picture of what you shredded, to text or email'],
-  btnSplit: ['Split view', 'Watch the Shred Pile fill up beside the tube'],
+  btnSplit: ['Split view', 'Watch the Shred Pile fill up (on a phone it slides over when you flush)'],
   btnWarp: ['Teleport', 'Leave the Shred Hole for World Builder'],
   btnInfo: ['How it works', 'The physics behind the silliness'],
 };
@@ -949,14 +951,47 @@ function mailboxUrl() {
   try { const w = localStorage.getItem('tunnelWorker'); if (w) return w.replace(/\/$/, '') + '/drops'; } catch {}
   return WORKER_URL ? WORKER_URL.replace(/\/$/, '') + '/drops' : '';
 }
+// Wide screens: the pile sits beside the tunnel. Phones and small windows ("flip"): the pile is
+// a whole screen to the right; you stay on the tunnel until a flush, then it slides over.
+const flipMode = () => innerWidth < 900 || innerHeight < 520;
+let onPile = false;
 function setSplit(on) {
+  const flip = on && flipMode();
   document.body.classList.toggle('split', on);
+  document.body.classList.toggle('flip', flip);
   $('pane').hidden = !on;
+  $('toPile').hidden = !flip;
+  if (!flip) showPile(false, true);
   requestAnimationFrame(() => {
     resize();
-    if (on) setPaneSource($('paneSrc').value);
+    if (on) { setPaneSource($('paneSrc').value); if (flip && !onPile) pileCam?.stop(); }
     else { pileCam?.stop(); $('paneFrame').src = 'about:blank'; }
   });
+}
+// flip mode: slide the pile in or out (only the visible scene is drawn, to spare the phone)
+function showPile(on, quiet = false) {
+  onPile = !!on;
+  document.body.classList.toggle('onPile', onPile);
+  if (!document.body.classList.contains('flip')) return;
+  if (onPile) { if ($('paneSrc').value !== 'live' && pileCam) { pileCam.start(); setTimeout(() => pileCam.resize(), 400); } }
+  else if (pileCam && !quiet) setTimeout(() => { if (!onPile) pileCam.stop(); }, 420);
+}
+const flipping = () => document.body.classList.contains('flip');
+// swipe in from an edge to flip between the two
+function setupFlipSwipe() {
+  let x0 = null, y0 = 0, from = null;
+  addEventListener('touchstart', (e) => {
+    if (!flipping() || e.touches.length !== 1) return;
+    const t = e.touches[0];
+    from = !onPile && t.clientX > innerWidth - 26 ? 'right' : onPile && t.clientX < 26 ? 'left' : null;
+    if (from) { x0 = t.clientX; y0 = t.clientY; }
+  }, { passive: true, capture: true });
+  addEventListener('touchend', (e) => {
+    if (x0 === null) return;
+    const t = e.changedTouches[0], dx = t.clientX - x0, dy = t.clientY - y0;
+    if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5) { if (from === 'right' && dx < 0) showPile(true); if (from === 'left' && dx > 0) showPile(false); }
+    x0 = null; from = null;
+  }, { passive: true, capture: true });
 }
 function setPaneSource(src) {
   const live = src === 'live';
@@ -1088,7 +1123,7 @@ function loop(now) {
     camera.position.x += (Math.random() - 0.5) * s; camera.position.y += (Math.random() - 0.5) * s;
     shake *= Math.pow(0.02, fdt);
   }
-  renderer.render(scene, camera);
+  if (!(onPile && flipping())) renderer.render(scene, camera);   // flip mode: the tunnel is off-screen
   audio.update(air.U, rotor.omega, FAN.blades, Math.abs(rotor.torque) / FAN.Tmax, ts);
   if (frames % 4 === 0) hud(ts);
 }
@@ -1159,10 +1194,14 @@ function buildUI() {
   document.addEventListener('visibilitychange', () => { if (document.hidden) flushInstantly(); });
   addEventListener('pagehide', flushInstantly);
   $('btnSplit').onclick = () => setSplit(!document.body.classList.contains('split'));
+  $('toPile').onclick = () => showPile(true);
+  $('paneBack').onclick = () => showPile(false);
+  setupFlipSwipe();
+  addEventListener('resize', () => { const on = document.body.classList.contains('split'); if (on && flipMode() !== flipping()) setSplit(true); });
   $('paneClose').onclick = () => setSplit(false);
   $('paneSrc').onchange = () => setPaneSource($('paneSrc').value);
   $('paneGo').onclick = () => { const u = $('paneUrl').value.trim(); if (u) { try { localStorage.setItem('wbLiveUrl', u); } catch {} showLive(u); } };
-  if (new URLSearchParams(location.search).has('split') && innerWidth >= 900) setSplit(true);
+  if (new URLSearchParams(location.search).has('split')) setSplit(true);
   $('shareClose').onclick = () => { $('shareBox').hidden = true; };
   $('infoClose').onclick = () => { $('info').hidden = true; };
   $('start').onclick = () => {

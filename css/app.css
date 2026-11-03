@@ -181,8 +181,7 @@ button, input { font: inherit; color: inherit; }
 
 /* split view: the Shred Pile beside the tunnel */
 :root { --paneW: 0px; }
-#btnSplit { display: none; }
-@media (min-width: 900px) and (min-height: 520px) { #btnSplit { display: inline-flex; } }
+#btnSplit { display: inline-flex; }
 body.split { --paneW: min(46vw, 760px); }
 body.split #c { width: calc(100% - var(--paneW)); }
 body.split #tools, body.split #throttleBox { right: calc(12px + var(--paneW)); }
@@ -346,3 +345,19 @@ body.warping::after { content: ''; position: fixed; inset: 0; z-index: 50; point
 #toolTip span { font-size: 12px; color: var(--t); }
 #toolTip::before { content: ''; position: absolute; top: -6px; left: var(--ax, 50%); margin-left: -6px; border: 6px solid transparent; border-top: 0; border-bottom-color: var(--y); }
 @keyframes tipIn { from { opacity: 0; transform: translateY(-3px); } }
+
+/* ---------------- split view on a phone ("flip"): the pile is a whole screen beside the tunnel.
+   You stay on the Shred Hole until you flush, then it slides over to watch the payload land;
+   ◀ Hole / Pile ▶ (or a swipe in from the edge) flips back and forth. */
+#paneBack, #toPile { display: none; }
+body.split.flip { --paneW: 0px; }
+body.split.flip #pane { width: 100%; left: 0; border-left: 0; z-index: 30; transform: translateX(100%); transition: transform .38s cubic-bezier(.3,.8,.3,1); box-shadow: -10px 0 30px rgba(0,0,0,.6); }
+body.split.flip.onPile #pane { transform: translateX(0); }
+body.split.flip #paneBack { display: inline-block; background: rgba(255,255,255,.08); border: 1px solid #5b3a8a; color: #e9d8ff; border-radius: 999px; padding: 5px 11px; font: 800 12px var(--sans); cursor: pointer; white-space: nowrap; flex: none; }
+body.split.flip #toPile:not([hidden]) { display: block; position: fixed; right: 0; top: calc(var(--st) + 136px); z-index: 6; background: linear-gradient(90deg, #3b1d6b, #2b0a4a); color: #e9d8ff; border: 1px solid #6b3fb0; border-right: 0; border-radius: 22px 0 0 22px; padding: 11px 12px 11px 14px; font: 800 13px var(--sans); box-shadow: 0 6px 18px rgba(0,0,0,.5); cursor: pointer; }
+body.split.flip.onPile #toPile { display: none; }
+body.split.flip #paneSrc { max-width: 96px; }
+body.split.flip #paneStat { display: none; }
+@media (min-width: 380px) { body.split.flip #paneStat { display: block; } }
+@media (max-height: 500px) { body.split.flip #toPile:not([hidden]) { top: calc(var(--st) + 60px); } }
+body.split.flip #pane .paneBar b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }

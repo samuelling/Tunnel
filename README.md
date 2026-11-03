@@ -123,5 +123,6 @@ lab/             the original 2D lattice-Boltzmann wind tunnel
 ### Little things
 - **Fabricator animation**: while Claude designs a typed object, a little fabricator scans, welds and cycles through shapes, ticking off steps (reading the order → tuning the crunch) with a progress bar that creeps toward 95% and only finishes when the design arrives.
 - **🌀 Teleport** (toolbar): warns you that you're leaving the Shred Hole, flushes the Portal Chute, then sends you to World Builder at the Shred Pile (`?visit=shred-pile`). The address defaults to `WORLD_BUILDER_URL` in `js/settings.js` (`http://localhost:3000`) and can be changed in the dialog.
+- **Split view on a phone**: 🪟 works on small screens too. Instead of squeezing both side by side, the Shred Pile waits one screen to the right. You stay on the tunnel until you FLUSH!, then it slides over to watch the payload land; **◀ Hole** / **🌀 Pile ▶** (or a swipe in from the screen edge) flips back and forth. Only the visible scene is drawn.
 - **Toolbar tips**: hover any toolbar button for its name and what it does.
 - **Smoke tracers** are on by default. **DROP IT!** is a front-facing handle that swings down toward you.
