@@ -4,7 +4,7 @@ A 15-metre vertical wind tower with a 4.6-metre fan at the bottom. Drop somethin
 
 Silly premise, real physics underneath. The scientific 2D version (lattice-Boltzmann CFD) lives on in [`/lab`](lab/).
 
-**Play:** https://samuelling.github.io/tunnel/ (GitHub Pages, serving the repo root)
+**Play:** https://samuelling.github.io/Tunnel/ (GitHub Pages, serving the repo root)
 
 ## What's modelled
 

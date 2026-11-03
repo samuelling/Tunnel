@@ -691,7 +691,7 @@ async function openShare() {
   $('shareMsg').textContent = pile.items.length ? 'Developing your photo…' : 'Nothing shredded yet this session. Throw something in first!';
   if (!pile.items.length) return;
   await new Promise(r => setTimeout(r, 30));
-  const site = /github\.io/.test(location.host) ? location.origin + location.pathname : 'samuelling.github.io/tunnel';
+  const site = /github\.io/.test(location.host) ? location.origin + location.pathname : 'samuelling.github.io/Tunnel';
   let blob;
   try { blob = await renderPileImage(pile, { url: site, bill: lifetimeBill() }); }
   catch (e) { console.error(e); $('shareMsg').textContent = 'The camera jammed too. Try again?'; return; }
