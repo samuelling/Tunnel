@@ -105,7 +105,7 @@
 
   <section class="meters">
     <div class="meterCard" id="mClaude"><h2>🧠 Claude meter</h2><div id="claudeMeters"></div></div>
-    <div class="meterCard" id="mCf"><h2>☁️ Cloudflare meter</h2><div id="cfMeters"></div></div>
+    <div class="meterCard" id="mCf"><h2>☁️ Cloudflare meter <span style="font-weight:500;letter-spacing:0;text-transform:none;color:var(--text-muted)">· this Worker</span></h2><div id="cfMeters"></div></div>
   </section>
 
   <section class="tiles" id="tiles"></section>
@@ -292,12 +292,13 @@ function renderMeters() {
   }
   if (cf.error) { box.replaceChildren(el('div', 'connect', 'Cloudflare didn\'t answer: ' + cf.error)); return; }
   box.querySelector('.connect')?.remove();
-  const m = cf.month, t = cf.today, inc = cf.included;
+  const m = cf.month, t = cf.today, inc = cf.included, a = cf.account || m;
+  const acct = (k) => a[k] > m[k] ? ` · your whole account: ${fmt(a[k])} (${(100 * a[k] / inc[k]).toFixed(3)}%)` : '';
   const since = new Date(cf.since + 'T12:00:00Z').toLocaleDateString(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' });
-  meterRow(box, { id: 'req', label: 'Worker requests this month', right: `${fmt(t.requests)} today`, value: m.requests, opts: { digits: 7 }, share: m.requests / inc.requests, foot: `${(100 * m.requests / inc.requests).toFixed(3)}% of the ${fmt(inc.requests)} included each month · since ${since}` });
-  meterRow(box, { id: 'kvw', label: 'Database writes this month', right: `${fmt(t.kvWrites)} today`, value: m.kvWrites, opts: { digits: 6 }, share: m.kvWrites / inc.kvWrites, foot: `${(100 * m.kvWrites / inc.kvWrites).toFixed(3)}% of ${fmt(inc.kvWrites)} included (KV: designs, deliveries, jams)` });
-  meterRow(box, { id: 'kvr', label: 'Database reads this month', right: `${fmt(t.kvReads)} today`, value: m.kvReads, opts: { digits: 7 }, share: m.kvReads / inc.kvReads, foot: `${(100 * m.kvReads / inc.kvReads).toFixed(3)}% of ${fmt(inc.kvReads)} included` });
-  meterRow(box, { id: 'dor', label: 'Stats database requests this month', right: `${fmt(t.doRequests)} today`, value: m.doRequests, opts: { digits: 6 }, share: m.doRequests / inc.doRequests, foot: `${(100 * m.doRequests / inc.doRequests).toFixed(3)}% of ${fmt(inc.doRequests)} included (Durable Objects) · Cloudflare's numbers, about 5 minutes behind` });
+  meterRow(box, { id: 'req', label: 'Worker requests this month', right: `${fmt(t.requests)} today`, value: m.requests, opts: { digits: 7 }, share: m.requests / inc.requests, foot: `${(100 * m.requests / inc.requests).toFixed(3)}% of the ${fmt(inc.requests)} included each month · since ${since}${acct('requests')}` });
+  meterRow(box, { id: 'kvw', label: 'Database writes this month', right: `${fmt(t.kvWrites)} today`, value: m.kvWrites, opts: { digits: 6 }, share: m.kvWrites / inc.kvWrites, foot: `${(100 * m.kvWrites / inc.kvWrites).toFixed(3)}% of ${fmt(inc.kvWrites)} included (KV: designs, deliveries, jams)${acct('kvWrites')}` });
+  meterRow(box, { id: 'kvr', label: 'Database reads this month', right: `${fmt(t.kvReads)} today`, value: m.kvReads, opts: { digits: 7 }, share: m.kvReads / inc.kvReads, foot: `${(100 * m.kvReads / inc.kvReads).toFixed(3)}% of ${fmt(inc.kvReads)} included${acct('kvReads')}` });
+  meterRow(box, { id: 'dor', label: 'Stats database requests this month', right: `${fmt(t.doRequests)} today`, value: m.doRequests, opts: { digits: 6 }, share: m.doRequests / inc.doRequests, foot: `${(100 * m.doRequests / inc.doRequests).toFixed(3)}% of ${fmt(inc.doRequests)} included (Durable Objects)${acct('doRequests')} · Cloudflare's numbers, about 5 minutes behind` });
 }
 
 function render() {

@@ -642,10 +642,15 @@ async function cfUsage(env, ctx, now) {
   const part = (from) => `
     w: workersInvocationsAdaptive(limit: 100, filter: {scriptName: $script, date_geq: "${from}", date_leq: $to}) { sum { requests errors subrequests } }
     kv: kvOperationsAdaptiveGroups(limit: 100, filter: {namespaceId: $kv, date_geq: "${from}", date_leq: $to}) { sum { requests } dimensions { actionType } }
-    d: durableObjectsInvocationsAdaptiveGroups(limit: 100, filter: {date_geq: "${from}", date_leq: $to}) { sum { requests } }`;
+    d: durableObjectsInvocationsAdaptiveGroups(limit: 100, filter: {scriptName: $script, date_geq: "${from}", date_leq: $to}) { sum { requests } }`;
+  const whole = (from) => `
+    w: workersInvocationsAdaptive(limit: 1000, filter: {date_geq: "${from}", date_leq: $to}) { sum { requests errors subrequests } }
+    kv: kvOperationsAdaptiveGroups(limit: 1000, filter: {date_geq: "${from}", date_leq: $to}) { sum { requests } dimensions { actionType } }
+    d: durableObjectsInvocationsAdaptiveGroups(limit: 1000, filter: {date_geq: "${from}", date_leq: $to}) { sum { requests } }`;
   const query = `query($acct: string!, $script: string!, $kv: string!, $to: Date!) { viewer {
     m: accounts(filter: {accountTag: $acct}) { ${part(month)} }
-    t: accounts(filter: {accountTag: $acct}) { ${part(today)} } } }`;
+    t: accounts(filter: {accountTag: $acct}) { ${part(today)} }
+    a: accounts(filter: {accountTag: $acct}) { ${whole(month)} } } }`;
   let out;
   try {
     const r = await fetch("https://api.cloudflare.com/client/v4/graphql", {
@@ -666,7 +671,7 @@ async function cfUsage(env, ctx, now) {
         doRequests: (acc.d || []).reduce((n, x) => n + x.sum.requests, 0)
       };
     };
-    out = { connected: true, at: now, month: sum(j.data.viewer.m), today: sum(j.data.viewer.t), since: month, included: INCLUDED };
+    out = { connected: true, at: now, month: sum(j.data.viewer.m), today: sum(j.data.viewer.t), account: sum(j.data.viewer.a), since: month, included: INCLUDED };
   } catch (e) {
     out = { connected: true, error: String(e.message || e).slice(0, 160), included: INCLUDED };
   }
