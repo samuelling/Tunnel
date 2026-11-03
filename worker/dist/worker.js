@@ -351,16 +351,19 @@ var worker_default = {
       const mins = Math.max(1, Math.ceil(st.resetsIn / 6e4));
       return reply(`The Fabricator is out of tickets for this hour. A new batch of ${st.pool} arrives in about ${mins} min. Everything in the Warehouse is still free.`, 429, { "x-shop": "tickets" });
     }
-    const r = await fetch("https://api.anthropic.com/v1/messages", {
+    const ask = (lean) => fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: { "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
       body: JSON.stringify({
         model: env.MODEL || "claude-sonnet-5-5",
         max_tokens: +env.MAX_TOKENS || 2e3,
         system: [{ type: "text", text: RECIPE_SYSTEM, cache_control: { type: "ephemeral" } }],
-        messages: [{ role: "user", content: recipeUser(what) }]
+        messages: [{ role: "user", content: recipeUser(what) }],
+        ...lean ? { thinking: { type: env.THINKING || "between_tools" }, output_config: { effort: env.EFFORT || "medium" } } : {}
       })
     });
+    let r = await ask(true);
+    if (r.status === 400) r = await ask(false);
     if (!r.ok) return reply("Claude is busy: " + (await r.text()).slice(0, 200), 502);
     const j = await r.json();
     const text = (j.content || []).map((c) => c.text || "").join("");
@@ -382,6 +385,7 @@ var worker_default = {
     t.out += u.output_tokens || 0;
     t.cacheRead += u.cache_read_input_tokens || 0;
     t.cacheWrite += u.cache_creation_input_tokens || 0;
+    t.thinking = (t.thinking || 0) + (u.output_tokens_details?.thinking_tokens || 0);
     await writeFab(env, ctx, fab);
     const after = status(fab, env, now);
     return reply({ recipe }, 200, { "x-cache": "miss", "x-pool-left": String(after.poolLeft), "x-day-left": String(after.dayLeft) });

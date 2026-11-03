@@ -27,7 +27,8 @@
 //  • Claude tokens: the design brief is a cached system prompt (repeat reads cost a small fraction
 //    of normal input), the reply is asked for as minified JSON without default-valued fields and
 //    with ≤16 parts, max_tokens is 2000, and names that differ only by size words ("a big donut")
-//    come off the shelf free. Running totals are on /quota as `tokens`.
+//    come off the shelf free, and thinking is off (it was billed as output). Running totals are on
+//    /quota as `tokens`.
 //  • POSTs from the page are sent as text/plain, so browsers skip the CORS preflight (one
 //    request per POST, not two); real preflights are cached for a day.
 import { RECIPE_SYSTEM, recipeUser, objectKey, looseKey } from '../js/prompt.js';
@@ -262,15 +263,22 @@ export default {
     }
     // 3. Claude designs it. The brief is the system prompt, marked for caching (it's identical every
     //    time); only the object's name is new. max_tokens leaves room for a 16-part design (~1k).
-    const r = await fetch('https://api.anthropic.com/v1/messages', {
+    // Sonnet 5.5 thinks before answering by default (high effort, adaptive thinking), and thinking is
+    // billed as output. A design is a one-shot fill-in-the-schema job, so thinking is turned off
+    // (between_tools: with no tools, that means none) and effort set to medium. THINKING=adaptive
+    // and EFFORT=high in the Worker's variables bring the old behaviour back.
+    const ask = (lean) => fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: { 'x-api-key': env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
       body: JSON.stringify({
         model: env.MODEL || 'claude-sonnet-5-5', max_tokens: +env.MAX_TOKENS || 2000,
         system: [{ type: 'text', text: RECIPE_SYSTEM, cache_control: { type: 'ephemeral' } }],
         messages: [{ role: 'user', content: recipeUser(what) }],
+        ...(lean ? { thinking: { type: env.THINKING || 'between_tools' }, output_config: { effort: env.EFFORT || 'medium' } } : {}),
       }),
     });
+    let r = await ask(true);
+    if (r.status === 400) r = await ask(false);   // a model that doesn't take those settings: ask plainly
     if (!r.ok) return reply('Claude is busy: ' + (await r.text()).slice(0, 200), 502);
     const j = await r.json();
     const text = (j.content || []).map(c => c.text || '').join('');
@@ -285,6 +293,7 @@ export default {
     const u = j.usage || {}, t = fab.tokens || (fab.tokens = { n: 0, in: 0, out: 0, cacheRead: 0, cacheWrite: 0 });
     t.n++; t.in += u.input_tokens || 0; t.out += u.output_tokens || 0;
     t.cacheRead += u.cache_read_input_tokens || 0; t.cacheWrite += u.cache_creation_input_tokens || 0;
+    t.thinking = (t.thinking || 0) + (u.output_tokens_details?.thinking_tokens || 0);
     await writeFab(env, ctx, fab);
     const after = status(fab, env, now);
     return reply({ recipe }, 200, { 'x-cache': 'miss', 'x-pool-left': String(after.poolLeft), 'x-day-left': String(after.dayLeft) });
