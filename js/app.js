@@ -955,26 +955,36 @@ function mailboxUrl() {
 // a whole screen to the right; you stay on the tunnel until a flush, then it slides over.
 const flipMode = () => innerWidth < 900 || innerHeight < 520;
 let onPile = false;
+let splitT = 0;
 function setSplit(on) {
   const flip = on && flipMode();
-  document.body.classList.toggle('split', on);
+  clearTimeout(splitT);
   document.body.classList.toggle('flip', flip);
-  $('pane').hidden = !on;
   $('toPile').hidden = !flip;
   if (!flip) showPile(false, true);
-  requestAnimationFrame(() => {
-    resize();
-    if (on) { setPaneSource($('paneSrc').value); if (flip && !onPile) pileCam?.stop(); }
-    else { pileCam?.stop(); $('paneFrame').src = 'about:blank'; }
-  });
+  if (on) {
+    // get the pile drawing (at its final size) before it slides in, so it arrives already moving
+    setPaneSource($('paneSrc').value);
+    if (flip && !onPile) pileCam?.stop();
+    requestAnimationFrame(() => document.body.classList.add('split'));
+  } else {
+    document.body.classList.remove('split');
+    // keep drawing while it slides away, then rest
+    splitT = setTimeout(() => { if (!document.body.classList.contains('split')) { pileCam?.stop(); $('paneFrame').src = 'about:blank'; } }, 600);
+  }
 }
-// flip mode: slide the pile in or out (only the visible scene is drawn, to spare the phone)
+// flip mode: slide the pile in or out. While it covers the screen only the pile is drawn (the
+// tunnel stops drawing once the slide has finished, and starts again as soon as it slides back).
+let pileCovers = false, coverT = 0;
 function showPile(on, quiet = false) {
   onPile = !!on;
-  document.body.classList.toggle('onPile', onPile);
-  if (!document.body.classList.contains('flip')) return;
-  if (onPile) { if ($('paneSrc').value !== 'live' && pileCam) { pileCam.start(); setTimeout(() => pileCam.resize(), 400); } }
-  else if (pileCam && !quiet) setTimeout(() => { if (!onPile) pileCam.stop(); }, 420);
+  clearTimeout(coverT);
+  if (!onPile) pileCovers = false;
+  if (!document.body.classList.contains('flip')) { document.body.classList.toggle('onPile', false); return; }
+  if (onPile && $('paneSrc').value !== 'live' && pileCam) { pileCam.start(); pileCam.resize(); }
+  requestAnimationFrame(() => document.body.classList.toggle('onPile', onPile));
+  if (onPile) coverT = setTimeout(() => { if (onPile) pileCovers = true; }, 600);
+  else if (pileCam && !quiet) coverT = setTimeout(() => { if (!onPile) pileCam.stop(); }, 600);
 }
 const flipping = () => document.body.classList.contains('flip');
 // swipe in from an edge to flip between the two
@@ -1000,6 +1010,8 @@ function setPaneSource(src) {
     $('paneFrame').hidden = true; $('paneLive').hidden = true; $('paneFrame').src = 'about:blank';
     if (!pileCam) {
       pileCam = new PileCam($('pileCanvas'), mailboxUrl());
+      pileCam.pollClock = -1e9;   // first read (and rebuilding the heap) waits until the pane has slid in
+      setTimeout(() => { pileCam.pollClock = pileCam.pollEvery; }, 650);
       const stat = () => { const t = pileCam.total; $('paneStat').textContent = `${t.pieces.toLocaleString()} pieces · ${t.kg.toFixed(0)} kg so far${pileCam.napping ? ' · 💤 napping' : ''}`; };
       pileCam.onNote = stat; pileCam.onNap = stat;
       pileCam.onBale = (n) => { if (pileCam.compacting) toast(`🗜️ The compactor squashed the Shred Pile into bale #${n}`); };
@@ -1024,7 +1036,7 @@ function showLive(u) {
 addEventListener('resize', () => { if (pileCam?.running) pileCam.resize(); });
 
 // ------------------------------------------------------------------------------- loop
-let last = performance.now(), acc = 0, frames = 0;
+let last = performance.now(), acc = 0, frames = 0, lastCW = 0;
 function loop(now) {
   requestAnimationFrame(loop);
   const fdt = Math.min(0.05, (now - last) / 1000); last = now; frames++;
@@ -1123,7 +1135,9 @@ function loop(now) {
     camera.position.x += (Math.random() - 0.5) * s; camera.position.y += (Math.random() - 0.5) * s;
     shake *= Math.pow(0.02, fdt);
   }
-  if (!(onPile && flipping())) renderer.render(scene, camera);   // flip mode: the tunnel is off-screen
+  const cw = renderer.domElement.clientWidth;   // the split pane is gliding in or out: follow it
+  if (cw !== lastCW) { lastCW = cw; resize(); }
+  if (!(pileCovers && flipping())) renderer.render(scene, camera);   // flip mode: the tunnel is off-screen
   audio.update(air.U, rotor.omega, FAN.blades, Math.abs(rotor.torque) / FAN.Tmax, ts);
   if (frames % 4 === 0) hud(ts);
 }
@@ -1197,6 +1211,9 @@ function buildUI() {
   $('toPile').onclick = () => showPile(true);
   $('paneBack').onclick = () => showPile(false);
   setupFlipSwipe();
+  // iOS Safari ignores user-scalable=no: stop its page pinch-zoom and double-tap zoom here
+  for (const ev of ['gesturestart', 'gesturechange', 'gestureend']) document.addEventListener(ev, (e) => e.preventDefault(), { passive: false });
+  document.addEventListener('dblclick', (e) => e.preventDefault(), { passive: false });
   addEventListener('resize', () => { const on = document.body.classList.contains('split'); if (on && flipMode() !== flipping()) setSplit(true); });
   $('paneClose').onclick = () => setSplit(false);
   $('paneSrc').onchange = () => setPaneSource($('paneSrc').value);

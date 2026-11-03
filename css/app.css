@@ -8,6 +8,8 @@
 }
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 [hidden] { display: none !important; }
+/* no iOS double-tap zoom: taps are just taps (the 3D views keep touch-action: none) */
+* { touch-action: manipulation; }
 html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); color: var(--t); font: 14px/1.4 var(--sans); }
 button, input { font: inherit; color: inherit; }
 #c { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
@@ -179,16 +181,22 @@ button, input { font: inherit; color: inherit; }
 .tixb { position: absolute; top: 3px; right: 3px; background: #1f7a3a; color: #fff; font: 800 10px var(--sans); border-radius: 8px; padding: 1px 5px; }
 .tixb.empty { background: #c1121f; }
 
-/* split view: the Shred Pile beside the tunnel */
-:root { --paneW: 0px; }
+/* split view: the Shred Pile beside the tunnel. --paneW is a registered (animatable) length, so the
+   tunnel, the toolbar, the tray and the levers all glide aside together while the pane slides in. */
+@property --paneW { syntax: '<length>'; inherits: true; initial-value: 0px; }
+:root { --paneW: 0px; --slide: .55s cubic-bezier(.22, .8, .24, 1); }
+body { transition: --paneW var(--slide); }
 #btnSplit { display: inline-flex; }
 body.split { --paneW: min(46vw, 760px); }
-body.split #c { width: calc(100% - var(--paneW)); }
-body.split #tools, body.split #throttleBox { right: calc(12px + var(--paneW)); }
-body.split #tray { right: var(--paneW); }
-body.split #verdict, body.split #damage, body.split #toast { left: calc(50% - var(--paneW) / 2); }
+#c { width: calc(100% - var(--paneW)); }
+#tools, #throttleBox { right: calc(12px + var(--paneW)); }
+#tray { right: var(--paneW); }
+#verdict, #damage, #toast { left: calc(50% - var(--paneW) / 2); }
 body.split #btnSplit { outline: 2px solid var(--y); }
-#pane { position: fixed; top: 0; right: 0; bottom: 0; width: var(--paneW); background: #0b0d12; border-left: 2px solid #3b1d6b; display: flex; flex-direction: column; z-index: 5; }
+#pane { position: fixed; top: 0; right: 0; bottom: 0; width: min(46vw, 760px); background: #0b0d12; border-left: 2px solid #3b1d6b; display: flex; flex-direction: column; z-index: 5;
+  transform: translateX(101%); visibility: hidden; box-shadow: -14px 0 34px rgba(0,0,0,.55);
+  transition: transform var(--slide), visibility 0s linear .55s; will-change: transform; }
+body.split #pane { transform: translateX(0); visibility: visible; transition: transform var(--slide), visibility 0s; }
 #pane .paneBar { display: flex; align-items: center; gap: 10px; padding: calc(8px + var(--st)) 10px 8px 14px; background: linear-gradient(90deg, #2b0a4a, #12151a); font-size: 12px; }
 #pane .paneBar b { font: 800 13px var(--sans); letter-spacing: 0.1em; color: #e9d8ff; }
 #paneStat { flex: 1; color: var(--m); font: 500 11px var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -215,7 +223,7 @@ body.split #btnSplit { outline: 2px solid var(--y); }
 .lever.pulled .plate { box-shadow: 0 3px 10px rgba(0,0,0,0.5), inset 0 0 0 3px rgba(0,0,0,0.6); transform: translateY(2px); }
 .lever.idle { opacity: 0.6; }
 .lever.idle .lbl { color: var(--m); }
-body.split #hatch { right: calc(14px + var(--paneW)); }
+#hatch { right: calc(14px + var(--paneW)); }
 @media (max-width: 700px) {
   #hatch { top: auto; bottom: calc(118px + var(--sb) + 258px); right: 10px; }
   .lever .plate { width: 58px; height: 58px; }
@@ -351,7 +359,7 @@ body.warping::after { content: ''; position: fixed; inset: 0; z-index: 50; point
    ◀ Hole / Pile ▶ (or a swipe in from the edge) flips back and forth. */
 #paneBack, #toPile { display: none; }
 body.split.flip { --paneW: 0px; }
-body.split.flip #pane { width: 100%; left: 0; border-left: 0; z-index: 30; transform: translateX(100%); transition: transform .38s cubic-bezier(.3,.8,.3,1); box-shadow: -10px 0 30px rgba(0,0,0,.6); }
+body.split.flip #pane { width: 100%; left: 0; border-left: 0; z-index: 30; transform: translateX(101%); transition: transform var(--slide); box-shadow: -10px 0 30px rgba(0,0,0,.6); }
 body.split.flip.onPile #pane { transform: translateX(0); }
 body.split.flip #paneBack { display: inline-block; background: rgba(255,255,255,.08); border: 1px solid #5b3a8a; color: #e9d8ff; border-radius: 999px; padding: 5px 11px; font: 800 12px var(--sans); cursor: pointer; white-space: nowrap; flex: none; }
 body.split.flip #toPile:not([hidden]) { display: block; position: fixed; right: 0; top: calc(var(--st) + 136px); z-index: 6; background: linear-gradient(90deg, #3b1d6b, #2b0a4a); color: #e9d8ff; border: 1px solid #6b3fb0; border-right: 0; border-radius: 22px 0 0 22px; padding: 11px 12px 11px 14px; font: 800 13px var(--sans); box-shadow: 0 6px 18px rgba(0,0,0,.5); cursor: pointer; }
@@ -361,3 +369,6 @@ body.split.flip #paneStat { display: none; }
 @media (min-width: 380px) { body.split.flip #paneStat { display: block; } }
 @media (max-height: 500px) { body.split.flip #toPile:not([hidden]) { top: calc(var(--st) + 60px); } }
 body.split.flip #pane .paneBar b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+
+/* iOS zooms into any text field under 16px when it's focused; keep them at 16px on touch screens */
+@media (pointer: coarse) { input, select, textarea { font-size: 16px !important; } }
