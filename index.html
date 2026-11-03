@@ -36,6 +36,7 @@
   <button id="btnSound" title="Sound">🔊</button>
   <button id="btnChaos" title="Throw 8 random things">🎲</button>
   <button id="btnClear" title="Clear debris">🧹</button>
+  <button id="btnShare" title="Share a picture of your shred pile">📸</button>
   <button id="btnInfo" title="How it works">ⓘ</button>
 </div>
 
@@ -50,6 +51,21 @@
 <div id="slowBadge" hidden>SLOW-MO</div>
 <div id="verdict" hidden></div>
 <div id="card" hidden></div>
+<div id="damage" hidden></div>
+<div id="shareBox" hidden>
+  <div class="sh">
+    <button id="shareClose" title="Close">✕</button>
+    <b>📸 Your shred pile</b>
+    <div id="shareActs" hidden>
+      <button id="shareGo">Share… (Messages, Mail)</button>
+      <a id="shareSave">Save image</a>
+      <a id="shareMail">Email</a>
+      <a id="shareText">Text</a>
+    </div>
+    <img id="shareImg" alt="Your shred pile" hidden>
+    <p id="shareMsg"></p>
+  </div>
+</div>
 <div id="toast"></div>
 <div id="tray"></div>
 <div id="countBox"><span id="tally"></span> <span class="dim">· <span id="count">0</span> bodies</span></div>
@@ -72,7 +88,8 @@
     <p>Silly premise, real physics underneath.</p>
     <ul>
       <li><b>The fan</b> is a 420 kg·m² rotor driven by a 1.2 MW speed-controlled motor, fighting an air load that grows with ω² (the fan law). Tunnel airspeed follows blade speed. Drag the slider below the centre line and the rotor runs backwards: the pitched blades move air up the tube at about 65% efficiency, which makes the tube a vertical wind tunnel. Light things float or get blown out of the top, and heavy things sink against the updraft into the blades.</li>
-      <li><b>Blade strikes</b> are momentum exchanges: the blade surface (pitched 22–52°) hits the object with the reduced mass of object + rotor and 25% restitution. Heavy things visibly slow the fan, and an anvil can stall it. If the energy exceeds the object's toughness, it breaks.</li>
+      <li><b>Blade strikes</b> are momentum exchanges: the blade surface (pitched 22–52°) hits the object with the reduced mass of object + rotor and 25% restitution. Heavy things visibly slow the fan.</li>
+      <li><b>Breakability</b> is worked out from materials, size and mass; nothing is hand-tuned. Mass ÷ volume against the material's density says how solid a thing is: a fridge works out to ~1 mm walls, a boulder is solid. From that come the <i>energy to break it</i> (work of fracture × fracture area) and the <i>force needed to cut into it</i> (crushing strength × the solid part of the contact). A blade bends at 250 kN and snaps at 600 kN. If something is stronger than the blade, the blade loses: it bends, snaps, or the rotor stalls against it. Then the breaker trips and the fan is out of order until you repair it.</li>
       <li><b>The air</b> has a turbulent boundary layer growing from the intake lip, a sink-like intake that sucks things in, flow splitting around the hub, swirl behind the rotor and a spreading exit jet. Free-stream turbulence is a sum of divergence-free random Fourier modes, advected with the flow.</li>
       <li><b>Aerodynamics</b> are computed per surface facet. Each facet gets impact pressure on the windward side, wake suction on the leeward side and skin friction, which is what makes things tumble. Thin flat things use a flat-plate model with a moving centre of pressure (Andersen, Pesavento &amp; Wang 2005), so cards and paper planes flutter. Spinning balls get Magnus lift and everything gets buoyancy (helium balloons rise).</li>
       <li><b>Breaking</b> splits objects into their parts, or shatters them into convex chunks that are real rigid bodies. Fragile things also break on hard landings.</li>

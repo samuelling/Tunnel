@@ -12,6 +12,9 @@ import { createRenderer, buildScene, buildColliders, toWorld } from './scene.js'
 import { DropCollector, packPoints, dropTargets } from './portal.js';
 import { CATALOG, buildObject, sanitizeRecipe, recipePrompt, MATERIALS } from './objects.js';
 import { shatterMesh, chunkMaterial } from './fracture.js';
+import { strengthOf, scaleStrength, BLADE, fmtForce } from './strength.js';
+import { buildOutOfOrder } from './outoforder.js';
+import { SessionPile, renderPileImage } from './sharepile.js';
 import { Particles } from './particles.js';
 import { Audio } from './audio.js';
 import { generateRecipe, generatorAvailable } from './claude.js';
@@ -21,7 +24,7 @@ const isTouch = matchMedia('(pointer: coarse)').matches;
 const MAX_BODIES = isTouch ? 170 : 260;
 const DT = 1 / 180;
 
-let renderer, scene, rig, portal, camera, controls, world, eventQueue, air, rotor, fan, particles, tunnel, drops;
+let renderer, scene, rig, portal, camera, controls, world, eventQueue, air, rotor, fan, particles, tunnel, drops, sign;
 const absorbing = [];
 const audio = new Audio();
 const bodies = [];
@@ -55,6 +58,7 @@ async function boot() {
   air = new Air();
   rotor = new Rotor();
   fan = buildFan();
+  sign = buildOutOfOrder(scene);
   rig.add(fan.group);
   particles = new Particles(rig);
   drops = new DropCollector({
@@ -176,7 +180,7 @@ function removeBody(rec, reason, keepMesh = false) {
     rec.group.traverse(o => { if (o.isMesh && o.userData.ownGeo) o.geometry.dispose(); });
   }
   rec.root.live.delete(rec);
-  if (reason === 'exit') rec.root.exitedMax = Math.max(rec.root.exitedMax, rec.mass);
+  if (reason === 'exit' || reason === 'portal') rec.root.exitedMax = Math.max(rec.root.exitedMax, rec.mass);
   if (reason === 'dissolve') rec.root.dissolved += rec.mass;
 }
 
@@ -241,7 +245,7 @@ function breakBody(rec, E, vNew, hitPoint, quiet = false) {
   }
   if (r.pop) { removeBody(rec, 'dissolve'); root.pieces += 0; return; }
 
-  const severity = E / Math.max(r.toughness * (rec.level ? Math.pow(rec.mass / root.mass0 * (r.count || 1), 0.66) : 1), 1e-3);
+  const severity = E / Math.max(physFor(rec).Ebreak, 1e-3);
   const separate = rec.level === 0 && rec.parts.length > 1 && severity < 2.5;
   rig.remove(rec.group);
   const parts = rec.parts;
@@ -290,7 +294,7 @@ function breakBody(rec, E, vNew, hitPoint, quiet = false) {
       root.pieces++;
       // a violent strike minces the pieces too (energy shared by mass, toughness scales ~ size²)
       const share = E * cmass / rec.mass * 0.6;
-      const tq = r.toughness * Math.pow(cmass / (root.mass0 / (r.count || 1)), 0.66);
+      const tq = scaleStrength(recipePhys(r), cmass / (root.mass0 / (r.count || 1))).Ebreak;
       if (crec.level < 5 && ch.size > 0.03 && share > 3 * tq) { crec.dead = true; breakBody(crec, share, new THREE.Vector3().copy(crec.body.linvel()), null, true); }
     }
     p.mesh.geometry.dispose?.();
@@ -304,7 +308,7 @@ const fanC = new THREE.Vector3(TUN.fanX, TUN.y0, 0);
 
 function physicsStep(dt) {
   rotor.step(dt);
-  air.update(dt, rotor.omega);
+  air.update(dt, rotor.omega * flowEff());
   world.timestep = dt;
 
   for (const rec of bodies) {
@@ -339,13 +343,14 @@ function physicsStep(dt) {
     rec.body.applyImpulse({ x: 2 * s * m, y: (-a * t.y / r - sw * t.z / r) * m, z: (-a * t.z / r + sw * t.y / r) * m }, true);
   }
 
+  stepExtraction();
   world.step(eventQueue);
 
   eventQueue.drainContactForceEvents(ev => {
     const f = ev.totalForceMagnitude();
     for (const h of [ev.collider1(), ev.collider2()]) {
       const rec = byCollider.get(h);
-      if (rec && rec.level === 0 && rec.impact > 0 && f > rec.impact && !rec.dead) { rec.dead = true; pending.push({ rec, E: rec.recipe.toughness * 1.5, kind: 'impact' }); }
+      if (rec && rec.level === 0 && rec.impact > 0 && f > rec.impact && !rec.dead) { rec.dead = true; pending.push({ rec, E: physFor(rec).Ebreak * 1.5, kind: 'impact' }); }
     }
   });
 
@@ -361,6 +366,7 @@ function physicsStep(dt) {
       strike(rec, hit, t);
     }
   }
+  checkStall(dt);
   for (const pnd of pending.splice(0)) {
     if (!bodies.includes(pnd.rec)) continue;
     const v = pnd.rec.body.linvel();
@@ -402,9 +408,22 @@ function strike(rec, hit, t) {
   if (metal) { particles.emit('sparks', contact, vb.clone().multiplyScalar(0.3), Math.min(160, 20 + E / 20), 6 + Math.sqrt(E) * 0.1); audio.sparks(); }
   audio.chop(E);
   if (E > 400) shake = Math.min(1, shake + Math.log10(E) / 8);
-  const toughness = r.toughness * (rec.level ? Math.max(0.05, Math.pow(rec.mass / Math.max(root.mass0 / (r.count || 1), 1e-6), 0.66)) : 1);
   if (!r.unbreakable && (rec.level > 0 && (rec.radius < 0.035 || rec.mass < 0.003 * root.mass0))) { dissolve(rec, vNew, E); return; }
-  if (!r.unbreakable && E > toughness) { rec.dead = true; breakBody(rec, E, vNew, contact); return; }
+  // object vs blade: peak force is the impulse over the contact time, capped by what the
+  // object can push back with before it gives way
+  const ph = physFor(rec);
+  const Fimp = (1 + FAN.restitution) * meff * vt * vt / ph.d;
+  const F = Math.min(Fimp, ph.Fneed);
+  root.maxF = Math.max(root.maxF || 0, F);
+  const k = bladeIndex(hit.phi);
+  const cuttable = ph.Fneed <= bladeFu(k);
+  bladeLoad(k, F, contact, rec);
+  if (!r.unbreakable && cuttable && E > ph.Ebreak) { rec.dead = true; breakBody(rec, E, vNew, contact); return; }
+  if (!cuttable && F > BLADE.Fy * 0.5) {
+    particles.emit('sparks', contact, vb.clone().multiplyScalar(0.2), Math.min(200, 40 + F / 4000), 8);
+    audio.hit('clang', Math.max(E, 2e4));
+    root.beatBlade = true;
+  }
   // bounce: apply the strike impulse at the blade side of the body
   const pt = new THREE.Vector3(t.x, t.y, t.z).addScaledVector(nc, -rec.radius * 0.6);
   rec.body.applyImpulseAtPoint({ x: nc.x * J, y: nc.y * J, z: nc.z * J }, { x: pt.x, y: pt.y, z: pt.z }, true);
@@ -414,6 +433,178 @@ function strike(rec, hit, t) {
 function hitRoot(root, E, w0) {
   root.maxE = Math.max(root.maxE, E);
   if (!root.firstHit) { root.firstHit = simTime; root.rpm0 = Math.abs(w0) * 60 / (2 * Math.PI); }
+}
+
+// ------------------------------------------------------------------------------- blade damage, jams, repairs
+// Per-blade damage d: 0 straight, 0–1 progressively bent (yield load drops as it bends), ≥1 bent
+// into the housing, ≥1.5 snapped. Any blade at ≥1, or the rotor stalled against something it
+// can't cut, jams the fan: the breaker trips and it stays out of order until repaired.
+const bladeDmg = new Float32Array(FAN.blades);
+let jam = null, jamPrevThrottle = 0, repairing = false, stallT = 0, lastDmgToast = 0;
+const extracting = [];
+const lifetimeBill = () => +(localStorage.getItem('shredBill') || 0);
+
+function bladeIndex(phi) {
+  const s = 2 * Math.PI / FAN.blades;
+  return ((Math.round((phi - rotor.theta) / s) % FAN.blades) + FAN.blades) % FAN.blades;
+}
+const bladeFy = (k) => BLADE.Fy * (1 - 0.5 * Math.min(1, bladeDmg[k]));
+const bladeFu = (k) => BLADE.Fu * (1 - 0.35 * Math.min(1, bladeDmg[k]));
+function flowEff() { let s = 0; for (const d of bladeDmg) s += Math.min(1, d); return 1 - 0.6 * s / FAN.blades; }
+function imbalance() {
+  let x = 0, y = 0;
+  for (let k = 0; k < FAN.blades; k++) { const a = k * 2 * Math.PI / FAN.blades, d = Math.min(1.5, bladeDmg[k]); x += d * Math.cos(a); y += d * Math.sin(a); }
+  return Math.hypot(x, y) / 1.5;
+}
+const bladeShard = { id: 'blade-shard', name: 'Fan blade (snapped)', icon: '🗡️', mass: 14, spray: 'sparks', sound: 'clang', inner: '#9aa0a8',
+  blend: 'The blade has been recycled.', survive: 'A souvenir.', parts: [{ shape: 'box', size: [0.05, 1.05, 0.34], color: '#d9dde2', material: 'metal' }] };
+
+function bladeLoad(k, F, contact, rec) {
+  const fy = bladeFy(k), fu = bladeFu(k);
+  if (F <= fy || jam) return;
+  const before = bladeDmg[k];
+  if (F >= fu) bladeDmg[k] = Math.max(bladeDmg[k], 1.5);
+  else bladeDmg[k] = Math.min(1.49, bladeDmg[k] + (F - fy) / (BLADE.Fu - BLADE.Fy));
+  fan.setBladeDamage(k, bladeDmg[k]);
+  particles.emit('sparks', contact, { x: 0, y: 0, z: 0 }, 120, 12);
+  audio.hit('clang', 4e5); shake = 1;
+  const name = rec.recipe.name.toLowerCase();
+  if (bladeDmg[k] >= 1.5) {
+    toast(`💥 The ${name} snapped blade ${k + 1} clean off`);
+    const sg = Math.sign(rotor.omega) || 1, a = Math.atan2(contact.z, contact.y);
+    spawnRecipe(bladeShard, new THREE.Vector3(TUN.fanX - 0.4, Math.cos(a) * 1.5, Math.sin(a) * 1.5), new THREE.Vector3(-3, -Math.sin(a) * sg * 9, Math.cos(a) * sg * 9));
+  } else if (bladeDmg[k] >= 1) toast(`Blade ${k + 1} bent into the housing`);
+  else if (bladeDmg[k] - before > 0.06 && simTime - lastDmgToast > 0.6) { toast(`⚠ The ${name} bent blade ${k + 1} (${Math.round(bladeDmg[k] * 100)}%)`); lastDmgToast = simTime; }
+  if (bladeDmg[k] >= 1) jamFan(bladeDmg[k] >= 1.5 ? 'snapped' : 'bent', rec, k);
+  updateDamageUI();
+}
+
+function checkStall(dt) {
+  if (jam || repairing || rotor.setpoint === 0) { stallT = 0; return; }
+  const target = Math.abs(rotor.setpoint * FAN.omegaMax);
+  let lodged = null;
+  if (Math.abs(rotor.omega) < 0.25 * target) {
+    for (const b of bodies) {
+      if (b.dead || b.radius < 0.2) continue;
+      const x = b.body.translation().x;
+      if (Math.abs(x - TUN.fanX) < FAN.zone + b.radius + 0.35 && (!lodged || b.mass > lodged.mass)) lodged = b;
+    }
+  }
+  stallT = lodged ? stallT + dt : Math.max(0, stallT - 2 * dt);
+  if (lodged && stallT > 1.6) jamFan('wedged', lodged, -1);
+}
+
+function jamFan(reason, rec, k) {
+  if (jam) return;
+  jam = { reason, rec, k, name: rec ? rec.recipe.name : 'something' };
+  rotor.locked = true;
+  const thr = $('throttle');
+  jamPrevThrottle = +thr.value || jamPrevThrottle;
+  thr.value = 0; thr.oninput(); thr.disabled = true;
+  audio.hit('clang', 8e5); audio.hit('thunk', 5e5); shake = 1;
+  setTimeout(() => { sign.show(); audio.hit('clang', 3e4); }, 450);
+  const root = rec && rec.root;
+  if (root && rec.recipe.id !== 'blade-shard') {
+    const r = root.recipe;
+    root.verdictHead = 'IT JAMMED THE FAN'; root.verdictQuip = r.survive; root.done = true;
+    logItem(root, 'IT JAMMED THE FAN');
+    showVerdict(r, 'IT JAMMED THE FAN', r.survive, `peak load ${fmtForce(root.maxF || 0)} · blades bend at ${fmtForce(BLADE.Fy)}`);
+  }
+  updateDamageUI();
+}
+
+function updateDamageUI() {
+  const el = $('damage');
+  let worst = 0, n = 0; for (const d of bladeDmg) { worst = Math.max(worst, d); if (d > 0.02) n++; }
+  if (repairing) return;
+  if (!jam && n === 0) { el.hidden = true; return; }
+  el.hidden = false;
+  el.className = jam ? 'jam' : '';
+  const why = !jam ? '' : jam.reason === 'snapped' ? `The ${jam.name.toLowerCase()} snapped blade ${jam.k + 1} off.`
+    : jam.reason === 'bent' ? `The ${jam.name.toLowerCase()} bent blade ${jam.k + 1} into the housing.`
+    : `A ${jam.name.toLowerCase()} is wedged in the rotor. The motor tripped.`;
+  el.innerHTML = jam
+    ? `<div class="msg"><b>⚠ FAN JAMMED</b><span>${escapeHtml(why)}</span></div><button id="btnRepair">🔧 Repair</button>`
+    : `<div class="msg"><b>${n} blade${n > 1 ? 's' : ''} bent</b><span>airflow −${Math.round((1 - flowEff()) * 100)}% · it'll wobble</span></div><button id="btnRepair">🔧 Repair</button>`;
+  $('btnRepair').onclick = repairFan;
+}
+
+function stepExtraction() {
+  for (let i = extracting.length - 1; i >= 0; i--) {
+    const e = extracting[i];
+    if (!bodies.includes(e.rec)) { extracting.splice(i, 1); continue; }
+    const k = Math.min(1, (performance.now() - e.t0) / e.ms), q = k * k * (3 - 2 * k);
+    const p = e.from.clone().lerp(e.to, q);
+    e.rec.body.setTranslation({ x: p.x, y: p.y, z: p.z }, true);
+    e.rec.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
+    if (k >= 1) {
+      for (const h of e.rec.colliders) world.getCollider(h)?.setSensor(false);
+      e.rec.body.setGravityScale(1, true); e.rec.body.setLinvel({ x: 3, y: 0, z: 0 }, true);
+      extracting.splice(i, 1);
+    }
+  }
+}
+
+function repairStep(text, ms, tick) {
+  $('damage').innerHTML = `<div class="msg"><b>🔧 REPAIRING</b><span>${escapeHtml(text)}</span></div><div class="bar"><i></i></div>`;
+  const bar = $('damage').querySelector('.bar i');
+  return new Promise(res => {
+    const t0 = performance.now();
+    const f = () => { const k = Math.min(1, (performance.now() - t0) / ms); bar.style.width = (k * 100) + '%'; tick?.(k); if (k < 1) requestAnimationFrame(f); else res(); };
+    f();
+  });
+}
+
+async function repairFan() {
+  if (repairing) return;
+  repairing = true;
+  const thr = $('throttle');
+  const prev = jam ? jamPrevThrottle : +thr.value;
+  rotor.locked = true; thr.value = 0; thr.oninput(); thr.disabled = true;
+  $('damage').hidden = false; $('damage').className = 'fix';
+  const bill = [];
+  if (camMode !== 3) setCamera(3);
+  await repairStep('Lockout–tagout: isolating the motor', 900, (k) => { if (k === 1) audio.hit('thunk', 3e3); });
+  // anything big still in the fan zone gets craned out and dropped through the portal
+  const lodged = bodies.filter(b => !b.dead && b.radius > 0.15 && b.body.translation().x > TUN.fanX - 2.5 - b.radius && b.body.translation().x < TUN.L + 0.4);
+  if (lodged.length) {
+    for (const rec of lodged) {
+      const t = rec.body.translation(), rr = Math.hypot(t.y, t.z) || 1, rc = Math.min(1.7, Math.max(1.1, rr));
+      for (const h of rec.colliders) world.getCollider(h)?.setSensor(true);
+      rec.body.setGravityScale(0, true);
+      extracting.push({ rec, t0: performance.now(), ms: 1700, from: new THREE.Vector3(t.x, t.y, t.z), to: new THREE.Vector3(TUN.L + 1.2, t.y / rr * rc, t.z / rr * rc) });
+    }
+    const big = lodged.reduce((a, b) => (b.mass > a.mass ? b : a));
+    bill.push(950);
+    await repairStep(`Craning out the ${big.recipe.name.toLowerCase()} (into the portal it goes)`, 1800, (k) => { if (Math.random() < 0.05) audio.hit('thunk', 800); });
+  }
+  for (let k = 0; k < FAN.blades; k++) {
+    const d0 = bladeDmg[k];
+    if (d0 < 0.02) continue;
+    const replace = d0 >= 1;
+    let last = 0;
+    await repairStep(replace ? `Fitting a new blade ${k + 1}` : `Hammering blade ${k + 1} straight`, replace ? 1400 : 900, (q) => {
+      bladeDmg[k] = d0 * (1 - q); fan.setBladeDamage(k, bladeDmg[k] < 1.5 && d0 >= 1.5 && q < 0.5 ? 1.5 : bladeDmg[k]);
+      if (performance.now() - last > (replace ? 300 : 180)) {
+        last = performance.now();
+        audio.hit('clang', 2e4);
+        const a = rotor.theta + k * 2 * Math.PI / FAN.blades;
+        particles.emit('sparks', { x: TUN.fanX, y: Math.cos(a) * 1.6, z: Math.sin(a) * 1.6 }, { x: 0, y: 0, z: 0 }, 30, 4);
+      }
+    });
+    bladeDmg[k] = 0; fan.setBladeDamage(k, 0);
+    bill.push(replace ? 14500 : Math.round(400 + 2600 * d0));
+  }
+  await repairStep('Resetting the breaker', 700, (k) => { if (k === 1) audio.hit('zap', 2e3); });
+  jam = null; rotor.locked = false; thr.disabled = false; stallT = 0;
+  sign.hide();
+  const total = bill.reduce((a, b) => a + b, 0) + 250;     // + call-out fee
+  const life = lifetimeBill() + total;
+  try { localStorage.setItem('shredBill', String(life)); } catch {}
+  repairing = false;
+  updateDamageUI();
+  toast(`✅ Back in service · repair bill $${total.toLocaleString()} (lifetime $${life.toLocaleString()})`);
+  if (prev) { thr.value = prev; thr.oninput(); }
 }
 
 // verdicts, a little after the first blade strike
@@ -457,6 +648,7 @@ function verdict(root) {
   parts.push(`hit ${fmtE(root.maxE)}`);
   if (root.rpmDrop > 1) parts.push(`fan −${Math.round(root.rpmDrop)} rpm`);
   root.verdictHead = head; root.verdictQuip = quip;
+  logItem(root, head);
   showVerdict(r, head, quip, parts.join(' · '));
   if (!r.unbreakable) addTally(root, score, Math.max(n, root.pieces));
 }
@@ -482,10 +674,43 @@ function absorb(rec) {
       v: [+(v.y).toFixed(2), +(-v.x).toFixed(2), +(v.z).toFixed(2)], q: [wq.x, wq.y, wq.z, wq.w].map(x => +x.toFixed(4)) };
   });
   drops.add(root, pieces);
+  const gid = ++pileGroup;   // parts of one rigid body stay together in the heap
+  pile.addPieces(pieces.map((pc, j) => ({ c: pc.c, p: pc.p, k: rec.parts[j].matKind, g: gid, o: pc.o, q: pc.q })));
   removeBody(rec, 'portal', true);
   absorbing.push({ group: rec.group, t: 0, x0: t.x, r0: Math.hypot(t.y, t.z), a0: Math.atan2(t.z, t.y), spinAxis: new THREE.Vector3().randomDirection() });
   portal.flash(Math.min(0.6, 0.08 + rec.mass * 0.05));
   if (performance.now() - lastWhoosh > 180) { audio.whoosh(rec.mass); lastWhoosh = performance.now(); }
+}
+
+// ------------------------------------------------------------------------------- share the pile
+let shareURL = null;
+async function openShare() {
+  const box = $('shareBox');
+  box.hidden = false;
+  $('shareImg').hidden = true; $('shareActs').hidden = true;
+  $('shareMsg').textContent = pile.items.length ? 'Developing your photo…' : 'Nothing shredded yet this session. Throw something in first!';
+  if (!pile.items.length) return;
+  await new Promise(r => setTimeout(r, 30));
+  const site = /github\.io/.test(location.host) ? location.origin + location.pathname : 'samuelling.github.io/tunnel';
+  let blob;
+  try { blob = await renderPileImage(pile, { url: site, bill: lifetimeBill() }); }
+  catch (e) { console.error(e); $('shareMsg').textContent = 'The camera jammed too. Try again?'; return; }
+  if (shareURL) URL.revokeObjectURL(shareURL);
+  shareURL = URL.createObjectURL(blob);
+  const file = new File([blob], 'shred-pile.png', { type: 'image/png' });
+  const text = pile.text(` ${site}`);
+  $('shareImg').src = shareURL; $('shareImg').hidden = false;
+  $('shareMsg').textContent = pile.text();
+  $('shareActs').hidden = false;
+  const canFiles = !!(navigator.canShare && navigator.canShare({ files: [file] }));
+  $('shareGo').hidden = !canFiles;
+  $('shareGo').onclick = async () => {
+    try { await navigator.share({ files: [file], title: 'My Shred Pile', text }); }
+    catch (e) { if (e.name !== 'AbortError') toast('Sharing is blocked here. Save the image instead.'); }
+  };
+  const save = $('shareSave'); save.href = shareURL; save.download = 'shred-pile.png';
+  $('shareMail').href = `mailto:?subject=${encodeURIComponent('My Shred Pile')}&body=${encodeURIComponent(text + '\n\n(Picture: save it from the Shred Hole and attach it.)')}`;
+  $('shareText').href = `sms:${/iPhone|iPad|Mac/.test(navigator.userAgent) ? '&' : '?'}body=${encodeURIComponent(text)}`;
 }
 
 // ------------------------------------------------------------------------------- loop
@@ -578,6 +803,9 @@ function loop(now) {
     }
   }
   controls.update();
+  sign.update(fdt, camera);
+  const imb = imbalance();                      // a bent blade throws the rotor out of balance
+  if (imb > 0.02 && !rotor.locked) shake = Math.max(shake, Math.min(0.9, imb * 0.8 * Math.min(1, Math.abs(rotor.omega) / 25)));
   if (shake > 0.001) {
     const s = shake * 0.06;
     camera.position.x += (Math.random() - 0.5) * s; camera.position.y += (Math.random() - 0.5) * s;
@@ -639,6 +867,8 @@ function buildUI() {
   $('btnChaos').onclick = chaos;
   $('btnClear').onclick = () => { for (const b of [...bodies]) removeBody(b, 'dissolve'); particles.clear(); roots.clear(); };
   $('btnInfo').onclick = () => { $('info').hidden = !$('info').hidden; };
+  $('btnShare').onclick = openShare;
+  $('shareClose').onclick = () => { $('shareBox').hidden = true; };
   $('infoClose').onclick = () => { $('info').hidden = true; };
   $('start').onclick = () => {
     $('start').hidden = true; audio.start();
@@ -721,9 +951,11 @@ function showCard(r) {
   const Lc = built.radius * 2;
   const Re = air.U * Lc / NU;
   const bf = beaufort(vt);
+  const ph = recipePhys(r);
+  const verdictTxt = r.unbreakable ? 'won’t shatter' : ph.Fneed > BLADE.Fu ? '⚠ stronger than the blades' : ph.Fneed > BLADE.Fy ? '⚠ will bend blades' : '';
   if (compactUI()) {
     $('card').classList.add('mini');
-    $('card').innerHTML = `<b>${escapeHtml(r.name)}</b> <span class="facts"><span><i>${fmtMass(m)}</i></span><span>${Lc.toFixed(1)} m</span><span>falls at <i>${vt.toFixed(0)} m/s</i></span></span>
+    $('card').innerHTML = `<b>${escapeHtml(r.name)}</b> <span class="facts"><span><i>${fmtMass(m)}</i></span><span>${Lc.toFixed(1)} m</span><span>breaks at <i>${fmtE(ph.Ebreak)}</i></span>${verdictTxt ? `<span class="warn">${verdictTxt}</span>` : ''}</span>
       <div class="hint">Flick the scene to throw · tap here to hide</div>`;
     $('card').hidden = false;
     clearTimeout(showCard.h);
@@ -733,7 +965,8 @@ function showCard(r) {
   $('card').classList.remove('mini');
   $('card').innerHTML = `<b>${escapeHtml(r.name)}</b>
     <div class="facts"><span>mass <i>${fmtMass(m)}</i></span><span>size <i>${Lc.toFixed(2)} m</i></span><span>drag area <i>${(cda * 1e4).toFixed(0)} cm²</i></span>
-    <span>terminal velocity <i>${vt.toFixed(1)} m/s</i></span><span>lifts off in <i>${bf.name.toLowerCase()}</i></span><span>Re now <i>${Re > 1e4 ? Re.toExponential(1) : Re.toFixed(0)}</i></span></div>
+    <span>terminal velocity <i>${vt.toFixed(1)} m/s</i></span><span>lifts off in <i>${bf.name.toLowerCase()}</i></span><span>Re now <i>${Re > 1e4 ? Re.toExponential(1) : Re.toFixed(0)}</i></span>
+    <span>walls <i>${ph.f > 0.6 ? 'solid' : ph.t < 0.01 ? (ph.t * 1000).toFixed(1) + ' mm' : (ph.t * 100).toFixed(1) + ' cm'}</i></span><span>breaks at <i>${fmtE(ph.Ebreak)}</i></span><span>cutting force <i>${fmtForce(ph.Fneed)}</i></span>${verdictTxt ? `<span class="warn">${verdictTxt}</span>` : ''}</div>
     ${r.fact ? `<p>${escapeHtml(r.fact)}</p>` : ''}<p class="hint">${isTouch ? 'Flick on the scene to throw · two fingers to look around' : 'Click or flick to throw · right-drag to look around · space = toss'}</p>`;
   $('card').hidden = false;
   clearTimeout(showCard.h);
@@ -747,6 +980,37 @@ const radiusCache = new WeakMap();
 function recipeRadius(r) {
   if (!radiusCache.has(r)) { const b = buildObject(r); b.group.traverse(o => o.geometry && o.geometry.dispose()); radiusCache.set(r, b.radius); }
   return radiusCache.get(r);
+}
+
+// this session's shred pile (for the 📸 share picture)
+const pile = new SessionPile();
+let pileGroup = 0;
+const matsCache = new WeakMap();
+function matsOf(r) {
+  if (!matsCache.has(r)) {
+    const b = buildObject(r), out = {};
+    for (const p of b.parts) out[p.matKind] = (out[p.matKind] || 0) + p.mass * (r.count || 1);
+    b.group.traverse(o => o.geometry && o.geometry.dispose());
+    matsCache.set(r, out);
+  }
+  return matsCache.get(r);
+}
+function logItem(root, head) {
+  if (root.logged) return;
+  root.logged = true;
+  pile.addItem(root.recipe, head, root.mass0, matsOf(root.recipe));
+}
+
+// physical strength of a recipe (cached) and of any body (fragments scale from their parent)
+const physCache = new WeakMap();
+function recipePhys(r) {
+  if (!physCache.has(r)) { const b = buildObject(r); physCache.set(r, strengthOf(r, b)); b.group.traverse(o => o.geometry && o.geometry.dispose()); }
+  return physCache.get(r);
+}
+function physFor(rec) {
+  const s = recipePhys(rec.recipe);
+  if (!rec.level) return s;
+  return scaleStrength(s, rec.mass / Math.max(rec.root.mass0 / (rec.recipe.count || 1), 1e-6));
 }
 
 const ray = new THREE.Raycaster();
@@ -781,6 +1045,7 @@ function throwArmed(sx, sy, swipe) {
 }
 
 function chaos() {
+  if (jam || repairing) { toast('The fan is out of order. Repair it first.'); return; }
   const list = recipes.filter(r => r.id !== 'anvil' && r.mass < 150);
   for (let i = 0; i < 8; i++) setTimeout(() => {
     const r = list[(Math.random() * list.length) | 0];
@@ -794,7 +1059,7 @@ function chaos() {
 let verdictTimer = 0;
 function showVerdict(r, head, quip, stats) {
   const v = $('verdict');
-  v.className = head.startsWith('IT BLENDS') ? 'blend' : head.startsWith('PART') ? 'part' : 'survive';
+  v.className = head.startsWith('IT BLENDS') ? 'blend' : head.startsWith('PART') ? 'part' : head.includes('JAMMED') ? 'jam' : 'survive';
   v.innerHTML = `<div class="ic">${r.icon || '✨'}</div><div><div class="hd">${head}</div><div class="nm">${escapeHtml(r.name)}</div><div class="q">${escapeHtml(quip)}</div>${stats ? `<div class="st">${stats}</div>` : ''}</div>`;
   v.hidden = false;
   v.classList.remove('pop'); void v.offsetWidth; v.classList.add('pop');
@@ -889,6 +1154,6 @@ function addGenerated(raw) {
   return r;
 }
 
-window.tunnel = { addRecipe: addGenerated, get bodies() { return bodies; }, rotor: () => rotor, air: () => air, spawn: (id, x = -1.4) => spawnRecipe(recipes.find(r => r.id === id), new THREE.Vector3(x, (Math.random() - 0.5) * 0.6, (Math.random() - 0.5) * 0.6), new THREE.Vector3(2, 0, 0)), get drops() { return drops; }, setThrottle: (v) => { $('throttle').value = v; $('throttle').oninput(); }, setCamera, arm: (id) => arm(recipes.find(r => r.id === id)) };
+window.tunnel = { pile, share: () => openShare(), phys: (id) => recipePhys(recipes.find(r => r.id === id)), recipes: () => recipes, repair: () => repairFan(), get jam() { return jam; }, bladeDmg, addRecipe: addGenerated, get bodies() { return bodies; }, rotor: () => rotor, air: () => air, spawn: (id, x = -1.4) => spawnRecipe(recipes.find(r => r.id === id), new THREE.Vector3(x, (Math.random() - 0.5) * 0.6, (Math.random() - 0.5) * 0.6), new THREE.Vector3(2, 0, 0)), get drops() { return drops; }, setThrottle: (v) => { $('throttle').value = v; $('throttle').oninput(); }, setCamera, arm: (id) => arm(recipes.find(r => r.id === id)) };
 
 boot().catch(e => { console.error(e); fail(e.message); });

@@ -9,6 +9,10 @@ export class Rotor {
     this.theta = 0; this.omega = 0; this.setpoint = 0; this.torque = 0; this.hits = 0;
   }
   step(dt) {
+    if (this.locked) {                         // jammed: something is jammed against the blades
+      this.omega *= Math.exp(-dt / 0.1); if (Math.abs(this.omega) < 0.05) this.omega = 0;
+      this.torque = 0; this.prevTheta = this.theta; this.theta += this.omega * dt; return;
+    }
     // setpoint −1 … +1: positive pushes air down the tube (shred), negative runs the rotor
     // backwards and blows air up it
     const w = this.omega, target = this.setpoint * FAN.omegaMax;
@@ -62,12 +66,15 @@ export function buildFan(blades = FAN.blades) {
   const geo = bladeGeometry();
   const tip = new THREE.BoxGeometry(0.03, 0.18, 0.5);
   const mats = [bladeMat, tipMat];
+  const bends = [];
   for (let k = 0; k < blades; k++) {
     const b = new THREE.Group();
-    const m = new THREE.Mesh(geo, bladeMat); m.castShadow = true; b.add(m);
+    const bend = new THREE.Group(); b.add(bend);      // damage: bent / snapped (see setBladeDamage)
+    const m = new THREE.Mesh(geo, bladeMat); m.castShadow = true; bend.add(m);
     const tm = new THREE.Mesh(tip, tipMat);
     const beta = bladeAngle(FAN.Rtip - 0.09);
-    tm.position.set(0, FAN.Rtip - 0.09, 0); tm.rotation.y = -(Math.PI / 2 - beta); b.add(tm);
+    tm.position.set(0, FAN.Rtip - 0.09, 0); tm.rotation.y = -(Math.PI / 2 - beta); bend.add(tm);
+    bends.push({ bend, tip: tm });
     b.rotation.x = k * 2 * Math.PI / blades;
     rotor.add(b);
   }
@@ -93,7 +100,16 @@ export function buildFan(blades = FAN.blades) {
   disc.rotation.y = Math.PI / 2;
   group.add(disc);
   group.position.set(TUN.fanX, TUN.y0, 0);
-  return { group, rotor, disc, mats };
+  // d: 0 = straight, 1 = bent into the housing, ≥1.5 = snapped off
+  const setBladeDamage = (k, d) => {
+    const { bend, tip } = bends[k];
+    const snapped = d >= 1.5, b = Math.min(d, 1);
+    bend.rotation.z = 0.45 * b;                 // folded downstream
+    bend.rotation.y = 0.3 * b;                  // twisted
+    bend.scale.y = snapped ? 0.42 : 1;
+    tip.visible = !snapped;
+  };
+  return { group, rotor, disc, mats, setBladeDamage };
 }
 
 function bladeGeometry() {

@@ -14,7 +14,9 @@ Silly premise, real physics underneath. The scientific 2D version (lattice-Boltz
 | **Blade strikes** | Momentum exchange between the blade's leading edge (moving at ω·r) and the object, using the reduced mass of object and rotor. Light things get batted downstream; heavy things visibly slow the fan, and an anvil can stall it. If the strike energy beats the object's toughness, it breaks. Violent strikes mince the pieces as well. |
 | **Air** | A turbulent boundary layer growing from the intake lip (δ = 0.37·x·Re⁻¹ᐟ⁵, 1/7-power profile), a sink-like intake that sucks in things thrown nearby, flow splitting around the hub, swirl behind the rotor and a spreading exit jet. Turbulence is a sum of divergence-free random Fourier modes, advected with the flow. |
 | **Aerodynamics** | Calculated per facet of each surface: impact pressure on the windward side, wake suction on the leeward side, skin friction. This is what makes things tumble and weathercock. Thin flat things use a flat-plate model with a sliding centre of pressure (after Andersen, Pesavento & Wang 2005), so cards flutter. Spinning balls get Magnus lift, and everything gets buoyancy (the helium balloon floats). |
-| **Breaking** | Objects split into their parts, or shatter into convex chunks (a Voronoi-style split around interior seeds). Each chunk is a real rigid body, coloured from skin to insides. Fragile things also break on hard landings. |
+| **Breakability** | Computed from materials, size and mass in `js/strength.js`; nothing is hand-tuned. Each material has a density, an effective work of fracture Γ (J/m², including plastic losses) and a crushing strength σ. The solid fraction f = (mass ÷ hull volume) ÷ material density gives an equivalent wall thickness t = f·V/S: a fridge comes out ~1 mm, a boulder solid. **Energy to break** E = Γ·A, with A = the smallest cross-section, or perimeter × t for shells. **Force to cut in** F = σ·fill·w·d, with blade edge w = 4 cm and engagement depth d. Peak strike force is min(F, F_imp), where F_imp = (1+e)·m_eff·v²/d. Blades bend above 250 kN (progressively, and a bent blade gets weaker) and snap at 600 kN. Anything stronger than the blade can't be cut, whatever the energy: a bank safe, a boulder, an anvil at speed. A blade bent into the housing, or the rotor stalled against something wedged in it, jams the fan. |
+| **Jams & repairs** | A jam trips the breaker, locks the rotor and drops an OUT OF ORDER sign on chains (a ~5.5 m pendulum). 🔧 Repair: lockout–tagout, crane the culprit out and drop it through the portal (yes, an intact safe arrives in World Builder), hammer bent blades straight or fit new ones, reset the breaker. It keeps a running repair bill. Bent blades also unbalance the rotor (it shakes) and cut the airflow. |
+| **Breaking** | Objects split into their parts, or shatter into convex chunks (a Voronoi-style split around interior seeds). Each chunk is a real rigid body, coloured from skin to insides. Fragment strength scales from the parent (fracture area ∝ size², cutting force ∝ size). Fragile things also break on hard landings. |
 | **Rigid bodies** | [Rapier](https://rapier.rs) with continuous collision detection, at 180 Hz. |
 | **Sound** | All synthesised: wind noise that follows the airspeed, a hum at the blade-pass frequency (blades × rev/s), and impacts per material. |
 
@@ -23,6 +25,7 @@ The HUD shows wind speed (with its Beaufort number), fan rpm, motor power, blade
 ## Controls
 
 - Pick an object in the tray, then **flick** on the scene to throw it (or tap / press space for a gentle toss). Two fingers or right-drag to look around.
+- **📸** renders this session's pile (everything that went through the portal, heaped at the angle of repose) with a list of what went in and what it was made of. It opens the phone's share sheet (Messages, Mail), or you can save the image or send the text by email or SMS.
 - **FAN** slider is bipolar. Above the centre line (SHRED) it pulls air down onto the blades; below it (LIFT) the rotor reverses and blows air up the tube at ~65% of the forward flow, so light things levitate or get blown out the top while heavy ones sink into the blades. Centre = off. 🎥 cycles cameras (Overview, Hopper, Blades, Window, Portal, Follow). 🐢 slow motion. ⏱️ auto bullet-time right before the chop. 💨 smoke tracers. 🎲 chaos.
 
 ## The portal → World Builder
@@ -77,7 +80,10 @@ js/fan.js        rotor dynamics, blade-sweep detection, blade geometry
 js/air.js        flow model + turbulence
 js/aero.js       facet and flat-plate aerodynamics, Magnus, buoyancy
 js/objects.js    object recipes, recipe → meshes/colliders/mass properties
-js/bigstuff.js   the big stuff: fridge, mannequin, toilet, cart, office chair, couch, grandfather clock, upright piano, pool flamingo, vending machine, clawfoot tub, giant teddy, disco ball, inflatable tube man
+js/strength.js   breakability: material table, E_break and cutting force, blade limits
+js/outoforder.js the OUT OF ORDER sign
+js/sharepile.js  session pile → heap render + inventory → share image
+js/bigstuff.js   the big stuff (bank safe, granite boulder and manhole cover are the fan-jammers): fridge, mannequin, toilet, cart, office chair, couch, grandfather clock, upright piano, pool flamingo, vending machine, clawfoot tub, giant teddy, disco ball, inflatable tube man
 js/prompt.js     the object-design prompt (shared with the Worker)
 js/fracture.js   convex-chunk shattering
 js/particles.js  juice, sparks, confetti, smoke

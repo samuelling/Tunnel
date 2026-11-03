@@ -54,6 +54,7 @@ button, input { font: inherit; color: inherit; }
 #card b { font: 800 14px var(--sans); }
 #card .facts { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 4px; color: var(--m); font: 500 11px var(--mono); }
 #card .facts i { color: var(--t); font-style: normal; }
+#card .facts .warn { color: #ff6b6b; font-weight: 700; }
 #card p { margin: 6px 0 0; }
 #card .hint { color: var(--m); font-size: 11px; }
 
@@ -73,6 +74,18 @@ button, input { font: inherit; color: inherit; }
 #slowBadge { position: fixed; left: 50%; bottom: calc(126px + var(--sb)); transform: translateX(-50%); font: 22px var(--disp); letter-spacing: 0.12em; color: var(--y); text-shadow: 0 0 18px rgba(255,194,26,0.6); pointer-events: none; }
 #toast { position: fixed; left: 50%; bottom: calc(160px + var(--sb)); transform: translateX(-50%); background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 8px 14px; font-size: 13px; opacity: 0; transition: opacity .3s; pointer-events: none; text-align: center; max-width: 86vw; }
 #toast.show { opacity: 1; }
+#damage { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(120px + var(--sb)); display: flex; align-items: center; gap: 12px; background: rgba(10,11,14,0.92); border: 2px solid var(--o); border-radius: 14px; padding: 8px 10px 8px 14px; max-width: min(520px, calc(100vw - 110px)); box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+#damage.jam { border-color: #ff3b3b; animation: jamPulse 1.1s ease-in-out infinite; }
+#damage.fix { border-color: #57b8ff; flex-direction: column; align-items: stretch; gap: 6px; min-width: min(360px, calc(100vw - 110px)); }
+#damage .msg { display: flex; flex-direction: column; gap: 2px; font-size: 12px; color: var(--m); }
+#damage .msg b { font: 800 13px var(--sans); color: var(--t); letter-spacing: 0.04em; }
+#damage.jam .msg b { color: #ff5a5a; }
+#damage button { flex: none; background: var(--y); color: #111; border: none; border-radius: 10px; padding: 10px 14px; font: 800 14px var(--sans); cursor: pointer; }
+#damage .bar { height: 6px; background: rgba(255,255,255,0.1); border-radius: 3px; overflow: hidden; }
+#damage .bar i { display: block; height: 100%; width: 0; background: #57b8ff; }
+#verdict.jam { border-color: #ff3b3b; } #verdict.jam .hd { color: #ff5a5a; }
+#throttle:disabled { opacity: 0.35; cursor: not-allowed; }
+@keyframes jamPulse { 50% { box-shadow: 0 0 0 4px rgba(255,59,59,0.35), 0 10px 30px rgba(0,0,0,0.5); } }
 #countBox { position: fixed; left: 14px; bottom: calc(112px + var(--sb)); font: 600 10px var(--mono); color: var(--y); pointer-events: none; }
 #countBox .dim { color: var(--m); font-weight: 500; }
 #card:not([hidden]) ~ #countBox { display: none; }
@@ -129,6 +142,10 @@ button, input { font: inherit; color: inherit; }
   #countBox { right: 92px; font-size: 10px; }
   #toast { top: auto; bottom: calc(110px + var(--sb)); left: 10px; transform: none; max-width: calc(100vw - 96px); text-align: left; }
   #hud .bft { font-size: 10px; }
+  #damage { left: 10px; right: 92px; transform: none; max-width: none; bottom: calc(108px + var(--sb)); }
+  #damage.fix { min-width: 0; }
+  #damage:not([hidden]) ~ #toast { bottom: calc(196px + var(--sb)); }
+  #damage:not([hidden]) ~ #countBox { display: none; }
 }
 @media (max-height: 500px) {
   #tray .item { width: 64px; } #tray .item canvas { width: 42px; height: 42px; }
@@ -136,3 +153,13 @@ button, input { font: inherit; color: inherit; }
   #card { bottom: calc(96px + var(--sb)); }
 }
 @keyframes popm { from { transform: scale(0.6); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+
+#shareBox { position: fixed; inset: 0; background: rgba(5,6,8,0.75); backdrop-filter: blur(6px); display: flex; align-items: center; justify-content: center; z-index: 30; padding: calc(12px + var(--st)) 12px calc(12px + var(--sb)); }
+#shareBox .sh { position: relative; background: #15171c; border: 1px solid var(--line); border-radius: 16px; padding: 14px; width: min(460px, 100%); max-height: 100%; overflow: auto; display: flex; flex-direction: column; gap: 10px; }
+#shareBox b { font: 800 16px var(--sans); }
+#shareBox img { width: 100%; max-height: 58vh; object-fit: contain; border-radius: 10px; display: block; }
+#shareBox p { margin: 0; color: var(--m); font-size: 12px; line-height: 1.4; }
+#shareClose { position: absolute; right: 10px; top: 8px; background: none; border: none; color: var(--m); font-size: 18px; cursor: pointer; }
+#shareActs { display: flex; flex-wrap: wrap; gap: 8px; }
+#shareActs > * { flex: 1 1 40%; text-align: center; padding: 11px 10px; border-radius: 10px; font: 700 14px var(--sans); text-decoration: none; cursor: pointer; border: 1px solid var(--line); background: rgba(255,255,255,0.06); color: var(--t); }
+#shareGo { flex-basis: 100% !important; background: var(--y) !important; color: #111 !important; border: none !important; }

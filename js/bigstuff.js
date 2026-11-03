@@ -40,9 +40,44 @@ const cartLegs = [[0.34, 0.2], [0.34, -0.2], [-0.34, 0.2], [-0.34, -0.2]].flatMa
 ]);
 
 export const BIG_STUFF = [
+  { id: 'safe', name: 'Bank safe', icon: '🔒', mass: 1000, toughness: 0, spray: 'cash', sound: 'clang', inner: '#555555',
+    blend: 'IT BLENDS?! That safe was not up to code.', survive: 'The safe is fine. The fan is not.',
+    fact: 'A tonne of steel and fill. It takes ~800 kN to cut into, but a fan blade bends at 250 kN and snaps at 600. Something has to give.',
+    parts: [
+      { shape: 'roundbox', size: [0.75, 0.9, 0.75], radius: 0.04, color: '#2f4a3a', material: 'steel' },
+      { shape: 'box', size: [0.03, 0.74, 0.6], pos: [0.385, 0, 0], color: '#36543f', material: 'steel' },
+      { shape: 'cylinder', size: [0.09, 0.09, 0.03], pos: [0.41, 0.12, 0], rot: [0, 0, 90], color: '#d9c27a', material: 'chrome' },
+      { shape: 'cylinder', size: [0.012, 0.012, 0.22], pos: [0.43, -0.12, 0.0], rot: [90, 0, 0], color: '#d9c27a', material: 'chrome' },
+      { shape: 'cylinder', size: [0.012, 0.012, 0.22], pos: [0.43, -0.12, 0.0], rot: [0, 0, 0], color: '#d9c27a', material: 'chrome' },
+      { shape: 'box', size: [0.004, 0.08, 0.3], pos: [0.402, 0.3, 0], color: '#d9c27a', material: 'chrome' },
+      { shape: 'cylinder', size: [0.025, 0.025, 0.12], pos: [0.37, 0.25, -0.33], color: '#1d2b22', material: 'steel' },
+      { shape: 'cylinder', size: [0.025, 0.025, 0.12], pos: [0.37, -0.25, -0.33], color: '#1d2b22', material: 'steel' },
+      { shape: 'box', size: [0.12, 0.05, 0.12], pos: [0.27, -0.47, 0.27], color: '#1d2b22', material: 'steel' },
+      { shape: 'box', size: [0.12, 0.05, 0.12], pos: [0.27, -0.47, -0.27], color: '#1d2b22', material: 'steel' },
+      { shape: 'box', size: [0.12, 0.05, 0.12], pos: [-0.27, -0.47, 0.27], color: '#1d2b22', material: 'steel' },
+      { shape: 'box', size: [0.12, 0.05, 0.12], pos: [-0.27, -0.47, -0.27], color: '#1d2b22', material: 'steel' },
+    ] },
+
+  { id: 'boulder', name: 'Granite boulder', icon: '🪨', mass: 1400, toughness: 0, spray: 'dust', sound: 'crunch', inner: '#9b958c',
+    blend: 'IT BLENDS?! Gravel, delivered.', survive: 'The boulder wins. Geology always wins.',
+    fact: '1.4 tonnes of solid granite (2,700 kg/m³, crushing strength ~150 MPa). It needs ~900 kN to cut, more than the blade can take.',
+    parts: [
+      { shape: 'sphere', size: [0.58, 0.46, 0.5], color: '#8d877d', material: 'stone', pattern: { type: 'spots', color: '#5f5a52', count: 60 } },
+      { shape: 'sphere', size: [0.3, 0.26, 0.28], pos: [0.32, 0.22, 0.12], color: '#958f85', material: 'stone' },
+      { shape: 'sphere', size: [0.26, 0.2, 0.24], pos: [-0.3, -0.2, -0.18], color: '#857f75', material: 'stone' },
+    ] },
+
+  { id: 'manhole', name: 'Manhole cover', icon: '⚫', mass: 55, toughness: 0, impact: 0, spray: 'sparks', sound: 'clang', inner: '#4a4a4a', aero: 'plate',
+    blend: 'IT BLENDS. Cast iron cracks. So did a blade.', survive: 'Flipped like a 55 kg coin.',
+    fact: 'Cast iron: brilliant under compression, brittle under impact. It does crack, but cutting it takes ~400 kN, so it costs you some blade.',
+    parts: [
+      { shape: 'cylinder', size: [0.31, 0.31, 0.05], color: '#3d3f42', material: 'iron', pattern: { type: 'bands', color: '#2c2e31', count: 6 } },
+      { shape: 'torus', size: [0.27, 0.012], pos: [0, 0.026, 0], rot: [90, 0, 0], color: '#2c2e31', material: 'iron' },
+    ] },
+
   { id: 'fridge', name: 'Fridge', icon: '🧊', mass: 85, toughness: 14000, spray: 'food', sound: 'clang', inner: '#e8f4ff',
     blend: 'IT BLENDS. Leftovers, redistributed.', survive: 'IT DID NOT BLEND. The light is still on.',
-    fact: '85 kg of stainless steel, foam and compressor. Each blade hit takes a big bite out of the fan’s angular momentum.',
+    fact: '85 kg in almost a cubic metre: really a 2 mm steel shell full of foam and air. It looks tough but isn’t.',
     parts: [
       { shape: 'roundbox', size: [0.66, 1.75, 0.7], radius: 0.03, color: '#c9ced4', material: 'metal' },
       { shape: 'roundbox', size: [0.06, 0.52, 0.68], radius: 0.02, pos: [0.36, 0.6, 0], color: '#d5dade', material: 'metal' },
@@ -156,11 +191,12 @@ export const BIG_STUFF = [
 
   { id: 'piano', name: 'Upright piano', icon: '🎹', mass: 220, toughness: 30000, spray: 'shards', sound: 'clang', inner: '#b07a4f',
     blend: 'IT BLENDS. That was a B-flat. Then a lot of B-flats.', survive: 'IT DID NOT BLEND. Slightly out of tune now.',
-    fact: 'About 220 strings pulling roughly 18 tonnes in total on a cast-iron frame. Expect the fan to stall.',
+    fact: 'About 220 strings pulling roughly 18 tonnes on a cast-iron plate. The wooden case is the easy part.',
     parts: [
-      { shape: 'box', size: [1.5, 1.2, 0.35], pos: [0, 0, -0.12], color: '#1b1b1b', material: 'ceramic' },
-      { shape: 'box', size: [1.52, 0.03, 0.37], pos: [0, 0.615, -0.12], color: '#141414', material: 'ceramic' },
-      { shape: 'box', size: [1.5, 0.08, 0.3], pos: [0, -0.12, 0.2], color: '#1b1b1b', material: 'ceramic' },
+      { shape: 'box', size: [1.5, 1.2, 0.35], pos: [0, 0, -0.12], color: '#1b1b1b', material: 'wood' },
+      { shape: 'box', size: [1.4, 1.05, 0.03], pos: [0, 0.02, -0.2], color: '#b8902f', material: 'iron' },
+      { shape: 'box', size: [1.52, 0.03, 0.37], pos: [0, 0.615, -0.12], color: '#141414', material: 'wood' },
+      { shape: 'box', size: [1.5, 0.08, 0.3], pos: [0, -0.12, 0.2], color: '#1b1b1b', material: 'wood' },
       { shape: 'box', size: [1.3, 0.03, 0.16], pos: [0, -0.067, 0.24], color: '#f8f6f0', material: 'plastic' },
       ...pianoKeys,
       { shape: 'box', size: [0.32, 0.23, 0.004], pos: [0, 0.2, 0.07], rot: [-12, 0, 0], color: '#fffdf4', material: 'paper' },
@@ -201,8 +237,8 @@ export const BIG_STUFF = [
     blend: 'IT BLENDS. Bath time is over.', survive: 'IT DID NOT BLEND. Cast iron, 1912. They built them differently.',
     fact: 'Enamelled cast iron is strong when squeezed but brittle when bent. One sharp blade hit and it cracks like a dinner plate.',
     parts: [
-      { shape: 'roundbox', size: [1.5, 0.55, 0.75], radius: 0.25, color: '#f7f7f5', material: 'ceramic' },
-      { shape: 'roundbox', size: [1.58, 0.06, 0.82], radius: 0.029, pos: [0, 0.27, 0], color: '#ffffff', material: 'ceramic' },
+      { shape: 'roundbox', size: [1.5, 0.55, 0.75], radius: 0.25, color: '#f7f7f5', material: 'iron' },
+      { shape: 'roundbox', size: [1.58, 0.06, 0.82], radius: 0.029, pos: [0, 0.27, 0], color: '#ffffff', material: 'iron' },
       { shape: 'box', size: [1.34, 0.006, 0.6], pos: [0, 0.302, 0], color: '#8fd0f5', material: 'glass' },
       { shape: 'sphere', size: [0.1, 0.04, 0.09], pos: [-0.3, 0.31, -0.12], color: '#ffffff', material: 'fabric' },
       { shape: 'sphere', size: [0.08, 0.035, 0.07], pos: [-0.45, 0.31, 0.1], color: '#ffffff', material: 'fabric' },
