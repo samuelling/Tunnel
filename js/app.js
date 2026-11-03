@@ -1166,9 +1166,11 @@ function buildUI() {
   $('shareClose').onclick = () => { $('shareBox').hidden = true; };
   $('infoClose').onclick = () => { $('info').hidden = true; };
   $('start').onclick = () => {
-    $('start').hidden = true; audio.start(); $('hatch').hidden = false; $('payload').hidden = false; $('hatch').classList.toggle('idle', !armed);
+    $('start').hidden = true; audio.start(); $('hatch').hidden = false; $('payload').hidden = false;
+    if (!armed) { const c = recipes.find(r => r.id === 'couch'); if (c) arm(c); }   // a couch is ready to go: pull the lever
+    $('hatch').classList.toggle('idle', !armed);
     if (rotor.setpoint === 0) { thr.value = 70; setThr(); }
-    toast(isTouch ? 'Pick something below, then pull DROP IT! (or flick it at the tunnel)' : 'Pick something below, then pull DROP IT! (D), or click/flick to throw it');
+    toast(isTouch ? 'A couch is loaded. Pull DROP IT! (or flick it at the tunnel), or pick something else below' : 'A couch is loaded. Pull DROP IT! (D) or click/flick to throw it, or pick something else below');
   };
   // maker dialog
   $('makeGo').onclick = runMaker;
