@@ -340,9 +340,9 @@ body.warping::after { content: ''; position: fixed; inset: 0; z-index: 50; point
 @keyframes warpOut { from { opacity: 0; transform: scale(.2) rotate(0); } to { opacity: 1; transform: scale(3) rotate(200deg); } }
 
 /* ---------------- toolbar hover tips */
-#tip { position: fixed; z-index: 40; pointer-events: none; background: #0b0e12f2; border: 1px solid var(--y); border-radius: 9px; padding: 6px 10px; max-width: 240px; display: flex; flex-direction: column; gap: 1px; box-shadow: 0 6px 18px rgba(0,0,0,.5); animation: tipIn .12s ease-out; }
-#tip[hidden] { display: none; }
-#tip b { font: 15px var(--disp); color: var(--y); letter-spacing: .04em; }
-#tip span { font-size: 12px; color: var(--t); }
-#tip::before { content: ''; position: absolute; top: -6px; left: var(--ax, 50%); margin-left: -6px; border: 6px solid transparent; border-top: 0; border-bottom-color: var(--y); }
+#toolTip { position: fixed; z-index: 40; pointer-events: none; background: #0b0e12f2; border: 1px solid var(--y); border-radius: 9px; padding: 6px 10px; max-width: 240px; display: flex; flex-direction: column; gap: 1px; box-shadow: 0 6px 18px rgba(0,0,0,.5); animation: tipIn .12s ease-out; }
+#toolTip[hidden] { display: none; }
+#toolTip b { font: 15px var(--disp); color: var(--y); letter-spacing: .04em; }
+#toolTip span { font-size: 12px; color: var(--t); }
+#toolTip::before { content: ''; position: absolute; top: -6px; left: var(--ax, 50%); margin-left: -6px; border: 6px solid transparent; border-top: 0; border-bottom-color: var(--y); }
 @keyframes tipIn { from { opacity: 0; transform: translateY(-3px); } }

@@ -921,7 +921,7 @@ const TOOL_TIPS = {
   btnInfo: ['How it works', 'The physics behind the silliness'],
 };
 function setupToolTips() {
-  const tip = document.createElement('div'); tip.id = 'tip'; tip.hidden = true; document.body.appendChild(tip);
+  const tip = document.createElement('div'); tip.id = 'toolTip'; tip.hidden = true; document.body.appendChild(tip);
   let showT = 0;
   const hide = () => { clearTimeout(showT); tip.hidden = true; };
   for (const b of document.querySelectorAll('#tools button')) {
