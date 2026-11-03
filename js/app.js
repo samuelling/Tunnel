@@ -572,9 +572,9 @@ function repairStep(text, ms, tick) {
 }
 
 async function repairFan() {
-  stats.count('repairs');
   if (repairing) return;
   repairing = true;
+  stats.count('repairs');
   const thr = $('throttle');
   const prev = jam ? jamPrevThrottle : +thr.value;
   rotor.locked = true; thr.value = 0; thr.oninput(); thr.disabled = true;
@@ -623,6 +623,8 @@ async function repairFan() {
   updateDamageUI();
   toast(`✅ Back in service · repair bill $${total.toLocaleString()} (lifetime $${life.toLocaleString()})`);
   if (prev) { thr.value = prev; thr.oninput(); }
+  // back to the Overview once the fan is spinning again
+  setTimeout(() => { if (!jam && !repairing && camMode !== 0) setCamera(0); }, 900);
 }
 
 // verdicts, a little after the first blade strike
