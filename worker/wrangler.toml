@@ -7,6 +7,10 @@ compatibility_date = "2026-10-01"
 ALLOWED_ORIGINS = "https://samuelling.github.io"
 # Cheaper/faster alternative: "claude-haiku-5-5"
 MODEL = "claude-sonnet-5-5"
+# New Claude designs per person (IP) per hour; cached objects are free and don't count
+GEN_PER_HOUR = "20"
+# Shared hourly pool of new designs for everyone (the "shred tickets" board)
+GEN_POOL_PER_HOUR = "40"
 
 # 6 objects per visitor per minute
 [[ratelimits]]

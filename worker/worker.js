@@ -12,6 +12,7 @@ function corsHeaders(origin, ok) {
     'Access-Control-Allow-Origin': ok ? origin : 'null',
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
     'Access-Control-Allow-Headers': 'content-type',
+    'Access-Control-Expose-Headers': 'x-gen-remaining, x-pool-left, x-cache',
     'Vary': 'Origin',
   };
 }
@@ -28,6 +29,7 @@ export default {
     if (req.method === 'OPTIONS') return new Response(null, { headers: { ...cors, 'Access-Control-Allow-Origin': origin || '*', 'Access-Control-Allow-Private-Network': 'true' } });
     const url = new URL(req.url);
     if (url.pathname.replace(/\/$/, '') === '/drops') return drops(req, env, url, ok, origin);
+    if (url.pathname.replace(/\/$/, '') === '/quota') return quota(req, env, origin);
     if (req.method !== 'POST') return reply('POST only', 405);
     if (!ok) return reply('origin not allowed', 403);
 
@@ -48,6 +50,23 @@ export default {
     const cached = await caches.default.match(cacheKey);
     if (cached) return new Response(cached.body, { headers: { ...cors, 'content-type': 'application/json', 'x-cache': 'hit' } });
 
+    // Shred tickets: new designs come out of one shared hourly pool for everyone, with a cap per
+    // person (connecting IP) so one visitor can't empty it. Cache hits above are free and don't
+    // count. Counted per clock hour in KV. KV is eventually consistent, so a burst from several
+    // places at once can slip a few past the cap. The 6-per-minute limiter and the Console spend
+    // limit stay as the hard ceilings.
+    const q = await readQuota(req, env);
+    if (q && q.poolLeft <= 0) return reply(`The shred generator is out of tickets for this hour. A new batch of ${q.pool} arrives in about ${q.mins} min. Already-designed things and the built-in objects still work.`, 429);
+    if (q && q.youLeft <= 0) return reply(`You've used all ${q.perPerson} of your tickets this hour. More in about ${q.mins} min. The built-in objects are unlimited.`, 429);
+    if (q) {
+      ctx.waitUntil(Promise.all([
+        env.DROPS.put(q.poolKey, String(q.poolUsed + 1), { expirationTtl: 7200 }),
+        env.DROPS.put(q.youKey, String(q.youUsed + 1), { expirationTtl: 7200 }),
+      ]));
+    }
+    const poolLeftAfter = q ? String(Math.max(0, q.poolLeft - 1)) : '';
+    const left = q ? String(Math.max(0, q.youLeft - 1)) : '';
+
     const r = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: { 'x-api-key': env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
@@ -61,11 +80,32 @@ export default {
     try { recipe = JSON.parse(text.slice(a, b + 1)); } catch (e) { return reply('Claude returned something unparseable', 502); }
     const body = JSON.stringify({ recipe });
     ctx.waitUntil(caches.default.put(cacheKey, new Response(body, { headers: { 'content-type': 'application/json', 'cache-control': 'max-age=604800' } })));
-    return new Response(body, { headers: { ...cors, 'content-type': 'application/json', 'x-cache': 'miss' } });
+    return new Response(body, { headers: { ...cors, 'content-type': 'application/json', 'x-cache': 'miss', 'x-gen-remaining': left, 'x-pool-left': poolLeftAfter } });
   },
 };
 
 // ---------------------------------------------------------------- the portal's mailbox
+async function readQuota(req, env) {
+  if (!env.DROPS) return null;
+  const pool = +env.GEN_POOL_PER_HOUR || 40, perPerson = +env.GEN_PER_HOUR || 20;
+  const hour = Math.floor(Date.now() / 3.6e6);
+  const poolKey = 'pool:' + hour, youKey = 'gen:' + (req.headers.get('CF-Connecting-IP') || 'anon') + ':' + hour;
+  const [p, y] = await Promise.all([env.DROPS.get(poolKey), env.DROPS.get(youKey)]);
+  const poolUsed = +p || 0, youUsed = +y || 0;
+  const resetsIn = 3.6e6 - (Date.now() % 3.6e6);
+  return { pool, perPerson, poolUsed, youUsed, poolKey, youKey, resetsIn, mins: Math.max(1, Math.ceil(resetsIn / 6e4)),
+    poolLeft: Math.max(0, pool - poolUsed), youLeft: Math.max(0, Math.min(perPerson - youUsed, pool - poolUsed)) };
+}
+
+// public ticket board: how many new designs are left this hour, for everyone and for you
+async function quota(req, env, origin) {
+  const headers = { 'Access-Control-Allow-Origin': origin || '*', 'Vary': 'Origin', 'content-type': 'application/json', 'cache-control': 'no-store' };
+  const q = await readQuota(req, env);
+  if (!q) return new Response(JSON.stringify({ error: 'no quota store' }), { status: 501, headers });
+  const { pool, perPerson, poolLeft, youLeft, resetsIn } = q;
+  return new Response(JSON.stringify({ pool, perPerson, poolLeft, youLeft, resetsIn, on: !!env.ANTHROPIC_API_KEY }), { headers });
+}
+
 const KEEP = 300;
 async function drops(req, env, url, ok, origin) {
   const headers = { 'Access-Control-Allow-Origin': origin || '*', 'Vary': 'Origin', 'content-type': 'application/json', 'cache-control': 'no-store' };

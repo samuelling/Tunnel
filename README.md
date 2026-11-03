@@ -55,6 +55,10 @@ There are two ways the page can reach Claude:
 1. **Claude-hosted version (artifact).** The page asks Claude directly. Each viewer gets a consent prompt and it runs on their own Claude account. Nothing to set up.
 2. **GitHub Pages.** A small Cloudflare Worker (`worker/`) holds an API key and only accepts `{"object": "<name>"}`. The prompt is built server-side, so the Worker can't be used as a general Claude proxy. It rate-limits each visitor and caches each object name for a week.
 
+### Shred tickets (token budget)
+
+New Claude designs come out of a **shared hourly pool** (`GEN_POOL_PER_HOUR`, default 40) with a **per-person cap** (`GEN_PER_HOUR`, default 20, per connecting IP). Both are counted per clock hour in the `DROPS` KV namespace. Objects someone already designed are cached for a week and cost no tickets. `GET /quota` returns `{pool, poolLeft, perPerson, youLeft, resetsIn}`, which drives the safety-board-style ticket sign in the ✨ dialog and the 🎟 badge on the tile. The 6-per-minute limiter and the Console spend limit remain the hard ceilings. KV is eventually consistent, so a burst from several places at once can slip a few past the cap.
+
 ### Deploying the Worker
 
 1. **API key.** Max includes monthly API credit. On claude.ai go to Settings → Billing → API credits → Link organization. Then create an API key in that Console organization, and set a workspace spend limit there as a safety net.

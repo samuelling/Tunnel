@@ -37,6 +37,21 @@ export function parseJSON(text) {
   return JSON.parse(text.slice(a, b + 1));
 }
 
+// how many new Claude designs this visitor has left this hour (from the Worker), or null
+export let designsLeft = null;
+export let poolLeft = null;
+
+// the public ticket board (Worker only; inside Claude each viewer uses their own account)
+export async function fetchQuota() {
+  if (await sampleNs()) return null;
+  const url = workerUrl();
+  if (!url) return null;
+  try {
+    const r = await fetch(url.replace(/\/$/, '') + '/quota', { cache: 'no-store' });
+    return r.ok ? await r.json() : null;
+  } catch (e) { return null; }
+}
+
 export async function generateRecipe(what, prompt) {
   const s = await sampleNs();
   if (s) {
@@ -50,7 +65,12 @@ export async function generateRecipe(what, prompt) {
   if (!url) throw new Error('no Claude connection is set up');
   const r = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ object: what }) });
   const body = await r.text();
+  if (r.status === 429) { const e = new Error(body.slice(0, 200)); e.limit = true; throw e; }
   if (!r.ok) throw new Error(body.slice(0, 160) || r.statusText);
+  const left = r.headers.get('x-gen-remaining');
+  if (left !== null) designsLeft = +left;
+  const pl = r.headers.get('x-pool-left');
+  if (pl !== null && pl !== '') poolLeft = +pl;
   const j = JSON.parse(body);
   return j.recipe || j;
 }

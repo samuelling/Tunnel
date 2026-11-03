@@ -18,6 +18,7 @@ import { SessionPile, renderPileImage } from './sharepile.js';
 import { Particles } from './particles.js';
 import { Audio } from './audio.js';
 import { generateRecipe, generatorAvailable } from './claude.js';
+import * as claudeGen from './claude.js';
 
 const $ = (id) => document.getElementById(id);
 const isTouch = matchMedia('(pointer: coarse)').matches;
@@ -839,10 +840,12 @@ function buildUI() {
   tray.innerHTML = '';
   const make = document.createElement('button');
   make.className = 'item make';
-  make.innerHTML = '<span class="ic">✨</span><span class="nm">Type anything</span>';
+  make.innerHTML = '<span class="ic">✨</span><span class="nm">Type anything</span><span id="tixBadge" class="tixb" hidden></span>';
   make.onclick = openMaker;
   tray.appendChild(make);
   for (const r of recipes) addTrayItem(r);
+  refreshQuota(); setInterval(refreshQuota, 60000);
+  setInterval(() => { if (!$('maker').hidden) renderTickets(); }, 1000);
   renderThumbs();
 
   const thr = $('throttle');
@@ -1116,12 +1119,37 @@ function renderThumbs() {
 }
 
 // ------------------------------------------------------------------------------- Claude maker
+// ---- shred tickets: one shared hourly pool of new Claude designs (see worker/worker.js)
+let quota = null, quotaAt = 0, quotaAsked = 0;
+async function refreshQuota() {
+  quotaAsked = performance.now();
+  const q = await claudeGen.fetchQuota();
+  if (q) { quota = q; quotaAt = performance.now(); }
+  renderTickets();
+}
+function renderTickets() {
+  const sign = $('tickets'), badge = $('tixBadge');
+  if (!quota || !quota.on) { sign.hidden = true; if (badge) badge.hidden = true; return; }
+  const ms = Math.max(0, quota.resetsIn - (performance.now() - quotaAt));
+  if (ms <= 0 && performance.now() - quotaAsked > 5000) refreshQuota();   // a new hour, a new batch
+  const empty = quota.poolLeft <= 0;
+  sign.hidden = false; sign.classList.toggle('empty', empty);
+  $('tixLeft').textContent = quota.poolLeft;
+  $('tixPool').textContent = quota.pool;
+  $('tixLabel').textContent = empty ? 'OUT OF TICKETS' : quota.poolLeft === 1 ? 'TICKET LEFT THIS HOUR' : 'TICKETS LEFT THIS HOUR';
+  const s = Math.ceil(ms / 1000);
+  $('tixClock').textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+  $('tixYou').textContent = quota.youLeft;
+  if (badge) { badge.hidden = false; badge.textContent = '🎟 ' + quota.poolLeft; badge.classList.toggle('empty', empty); }
+}
+
 async function openMaker() {
   $('maker').hidden = false;
+  refreshQuota();
   $('makeMsg').textContent = '';
   const ok = await generatorAvailable();
   $('makeNote').innerHTML = ok
-    ? 'Claude designs it: shape, mass, toughness, what sprays out and what it sounds like.'
+    ? 'Claude designs it: shape, mass, materials, what sprays out and what it sounds like. Things someone already designed are free.'
     : 'Typing objects needs Claude: open the <b>Claude-hosted</b> version of Tunnel, or set up the Worker described in the README.';
   $('makeGo').disabled = !ok;
   setTimeout(() => $('makeIn').focus(), 50);
@@ -1135,10 +1163,14 @@ async function runMaker() {
   $('makeMsg').textContent = `${quips[(Math.random() * quips.length) | 0]} “${what}”…`;
   try {
     const raw = await generateRecipe(what, recipePrompt(what));
-    addGenerated(raw);
+    const r = addGenerated(raw);
     $('maker').hidden = true;
+    if (quota && claudeGen.poolLeft !== null) { quota.poolLeft = claudeGen.poolLeft; quota.youLeft = Math.min(claudeGen.designsLeft ?? quota.youLeft, quota.poolLeft); renderTickets(); }
+    const left = claudeGen.designsLeft;
+    if (left !== null && left <= 5) toast(`${r.icon} ${r.name} is ready. ${left === 0 ? 'That was your last new design this hour.' : `${left} new design${left === 1 ? '' : 's'} left this hour.`}`);
   } catch (e) {
-    $('makeMsg').textContent = 'Claude couldn’t build that one: ' + (e.message || e);
+    $('makeMsg').textContent = e.limit ? '⏳ ' + e.message : 'Claude couldn’t build that one: ' + (e.message || e);
+    if (e.limit) refreshQuota();
   } finally { $('makeGo').disabled = false; }
 }
 

@@ -163,3 +163,18 @@ button, input { font: inherit; color: inherit; }
 #shareActs { display: flex; flex-wrap: wrap; gap: 8px; }
 #shareActs > * { flex: 1 1 40%; text-align: center; padding: 11px 10px; border-radius: 10px; font: 700 14px var(--sans); text-decoration: none; cursor: pointer; border: 1px solid var(--line); background: rgba(255,255,255,0.06); color: var(--t); }
 #shareGo { flex-basis: 100% !important; background: var(--y) !important; color: #111 !important; border: none !important; }
+
+/* shred tickets: "N days since last workplace accident" board */
+.tix { margin: 10px 0 4px; border-radius: 10px; overflow: hidden; border: 3px solid #1f7a3a; background: #f6f4ec; color: #151515; box-shadow: 0 6px 20px rgba(0,0,0,0.35); }
+.tixHead { background: #1f7a3a; color: #fff; font: 800 13px var(--sans); letter-spacing: 0.22em; text-align: center; padding: 5px 0; }
+.tixBody { display: flex; align-items: center; gap: 14px; padding: 10px 14px 6px; }
+.tixNum { flex: none; min-width: 84px; text-align: center; background: #111; color: #f4f4f4; border-radius: 6px; padding: 4px 10px; font: 52px/1 var(--disp); letter-spacing: 0.04em; box-shadow: inset 0 -26px 0 rgba(255,255,255,0.05), inset 0 0 0 2px #333; }
+.tixTxt { display: flex; flex-direction: column; gap: 3px; }
+.tixTxt b { font: 800 16px var(--sans); letter-spacing: 0.06em; }
+.tixTxt span { font-size: 12px; color: #555; }
+.tixFoot { display: flex; justify-content: space-between; gap: 10px; padding: 4px 14px 9px; font: 600 12px var(--mono); color: #333; }
+.tixFoot b { color: #111; }
+.tix.empty { border-color: #c1121f; } .tix.empty .tixHead { background: #c1121f; } .tix.empty .tixNum { color: #ff5a5a; }
+#tray .item.make { position: relative; }
+.tixb { position: absolute; top: 3px; right: 3px; background: #1f7a3a; color: #fff; font: 800 10px var(--sans); border-radius: 8px; padding: 1px 5px; }
+.tixb.empty { background: #c1121f; }
