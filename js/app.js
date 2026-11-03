@@ -914,7 +914,6 @@ const TOOL_TIPS = {
   btnGust: ['Gust', 'A sudden blast of air'],
   btnSound: ['Sound', 'Mute or unmute'],
   btnChaos: ['Chaos', 'Throw 8 random things at once'],
-  btnClear: ['Clear debris', 'Sweep up everything in the tube'],
   btnShare: ['Share your pile', 'Picture of what you shredded, to text or email'],
   btnSplit: ['Split view', 'Watch the Shred Pile fill up beside the tube'],
   btnWarp: ['Teleport', 'Leave the Shred Hole for World Builder'],
@@ -1148,7 +1147,6 @@ function buildUI() {
   $('btnSound').classList.add('on');
   $('btnGust').onclick = () => { air.gust = 2.5; toast('Gust!'); };
   $('btnChaos').onclick = chaos;
-  $('btnClear').onclick = () => { for (const b of [...bodies, ...frozen]) removeBody(b, 'dissolve'); particles.clear(); roots.clear(); };
   $('btnInfo').onclick = () => { $('info').hidden = !$('info').hidden; };
   $('btnShare').onclick = openShare;
   $('btnWarp').onclick = openWarp;
