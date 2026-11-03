@@ -111,9 +111,9 @@ export class PileCam {
     scene.background = new THREE.Color('#8fb3d9');
     scene.fog = new THREE.Fog('#a9c3df', 260, 900);
     this.camera = new THREE.PerspectiveCamera(50, 1, 1, 3000);
-    this.camera.position.set(0, 66, -190);   // straight on, so the heap sits in the middle and stays there as it turns
+    this.camera.position.set(0, 34, -250);   // straight on and a little low, looking up: the heap below, the portal above
     this.controls = new OrbitControls(this.camera, canvas);
-    this.controls.target.set(0, 10, 0);       // the heap's centre
+    this.controls.target.set(0, 70, 0);       // halfway between the heap and the vortex portal (150 m up)
     this.controls.enableDamping = true;
     this.controls.maxPolarAngle = Math.PI * 0.49;
     this.controls.minDistance = 30; this.controls.maxDistance = 600;
@@ -484,10 +484,10 @@ export class PileCam {
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h; this.camera.updateProjectionMatrix();
     // until someone moves the view, back off far enough that the whole heap (about 75 m across
-    // each way) fits the panel's width: a tall narrow panel needs more distance than a wide one
+    // each way) fits the panel's width, with the portal overhead still in frame: a tall narrow panel needs more distance than a wide one
     if (!this.userMoved) {
       const hfov = 2 * Math.atan(Math.tan(this.camera.fov * Math.PI / 360) * this.camera.aspect);
-      const dist = Math.min(560, Math.max(198, 78 / Math.tan(hfov / 2)));
+      const dist = Math.min(600, Math.max(255, 78 / Math.tan(hfov / 2)));
       const dir = this.camera.position.clone().sub(this.controls.target).normalize();
       this.camera.position.copy(this.controls.target).addScaledVector(dir, dist);
     }
