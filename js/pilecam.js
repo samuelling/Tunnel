@@ -16,7 +16,7 @@ const CELLS = 64, CELL = (PILE_R * 2) / CELLS;
 const REPOSE = Math.tan(38 * DEG);
 const PORTAL_ALT = 150, PORTAL_R = 28;
 const GRAV = 9.81 * 2.2;
-const POLL = 6;
+const POLL = 6, POLL_MAX = 60;   // the pile naps: checks back off to once a minute when nothing arrives
 const SCALE = 60;
 
 function hashString(s) {
@@ -176,7 +176,7 @@ export class PileCam {
     this.H = new Float32Array(CELLS * CELLS);
     this.pieceMat = new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.7, metalness: 0.05 });
     this.pileGroup = new THREE.Group(); g.add(this.pileGroup);
-    this.seen = new Set(); this.lastAt = 0; this.first = true; this.busy = false; this.pollClock = POLL;
+    this.seen = new Set(); this.lastAt = 0; this.first = true; this.busy = false; this.pollClock = POLL; this.pollEvery = POLL; this.napping = false;
     this.falling = []; this.arriving = []; this.pending = new Map(); this.emergeClock = 0;
     // particles
     const NP = this.NP = 1200;
@@ -269,6 +269,7 @@ export class PileCam {
     if (this.seen.has(key) || !Array.isArray(d.pieces)) return;
     this.seen.add(key);
     this.lastAt = Math.max(this.lastAt, d.at || 0);
+    this.setPace(POLL);
     this.note(d); this.drawBoard();
     this.uniforms.uPulse.value = 1.5;
     const rng = mulberry32(hashString(d.id || key));
@@ -347,19 +348,27 @@ export class PileCam {
       if (r.ok) {
         const j = await r.json();
         const got = (Array.isArray(j.drops) ? j.drops : []).sort((a, b) => a.at - b.at);
+        let fresh = 0;
         for (const d of got) {
           const key = d.id || `${d.at}:${d.object?.name}`;
           if (this.seen.has(key) || !Array.isArray(d.pieces)) continue;
+          fresh++;
           if (this.first) { this.seen.add(key); this.lastAt = Math.max(this.lastAt, d.at || 0); this.settleDrop(d); }
           else this.arrive(d);
         }
         if (this.first) this.drawBoard();
+        else this.setPace(fresh ? POLL : Math.min(POLL_MAX, this.pollEvery * 1.5));
         this.first = false;
       }
     } catch { /* offline: try again next time */ }
     this.busy = false;
   }
 
+  setPace(sec) {
+    this.pollEvery = sec;
+    const nap = sec >= 30;
+    if (nap !== this.napping) { this.napping = nap; this.onNap?.(); }
+  }
   resize() {
     const w = this.canvas.clientWidth, h = this.canvas.clientHeight;
     if (!w || !h) return;
@@ -382,7 +391,7 @@ export class PileCam {
       this.light.intensity = 3 + 2 * this.uniforms.uPulse.value;
       this.beam.material.opacity = 0.04 + 0.05 * this.uniforms.uPulse.value;
       this.pollClock += dt;
-      if (this.pollClock >= POLL) { this.pollClock = 0; this.poll(); }
+      if (this.pollClock >= this.pollEvery && !document.hidden) { this.pollClock = 0; this.poll(); }
       if (this.arriving.length) this.emerge(dt);
       if (this.falling.length) this.fall(dt);
       this.stepParticles(dt);

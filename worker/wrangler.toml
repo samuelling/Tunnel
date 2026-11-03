@@ -7,10 +7,14 @@ compatibility_date = "2026-10-01"
 ALLOWED_ORIGINS = "https://samuelling.github.io"
 # Cheaper/faster alternative: "claude-haiku-5-5"
 MODEL = "claude-sonnet-5-5"
-# New Claude designs per person (IP) per hour; cached objects are free and don't count
+# New Claude designs per person per hour (counted in the visitor's browser); Warehouse objects are free
 GEN_PER_HOUR = "20"
 # Shared hourly pool of new designs for everyone (the "shred tickets" board)
 GEN_POOL_PER_HOUR = "40"
+# The Fabricator's daily cap; when it's spent the shop is CLOSED until 9 AM Eastern
+GEN_PER_DAY = "150"
+# Portal fuel: drop deliveries per day (Cloudflare's free KV allows 1,000 writes/day)
+FUEL_PER_DAY = "600"
 
 # 6 objects per visitor per minute
 [[ratelimits]]

@@ -49,10 +49,21 @@
   <output id="thrOut">OFF</output>
 </div>
 
-<button id="hatch" hidden title="Drop the selected object down the hatch (H)">
+<button id="hatch" class="lever" hidden title="Drop the selected object down the hatch (H)">
   <span class="plate"><span class="slot"></span><span class="arm"><span class="knob"></span></span></span>
   <span class="lbl">DOWN THE<br>HATCH!</span>
 </button>
+<div id="payload" hidden>
+  <div class="plHead">📦 PAYLOAD</div>
+  <div class="plCount" id="plCount">0</div>
+  <div class="plSub" id="plSub">hatch is empty</div>
+  <div class="plBar"><i id="plFill"></i></div>
+  <div class="plLost" id="plLost" hidden></div>
+  <button id="plLever" class="lever red" title="Open the hatch: send the payload through the portal (O)">
+    <span class="plate"><span class="slot"></span><span class="arm"><span class="knob"></span></span></span>
+    <span class="lbl">OPEN THE<br>HATCH</span>
+  </button>
+</div>
 <div id="slowBadge" hidden>SLOW-MO</div>
 <div id="verdict" hidden></div>
 <div id="card" hidden></div>
@@ -94,15 +105,25 @@
     <button id="makeClose" class="x">✕</button>
     <h2>Feed it anything</h2>
     <div id="tickets" class="tix" hidden>
-      <div class="tixHead">⚠ SHRED GENERATOR ⚠</div>
+      <div class="tixHead">⚠ THE FABRICATOR ⚠</div>
       <div class="tixBody">
         <div class="tixNum"><span id="tixLeft">0</span></div>
         <div class="tixTxt"><b id="tixLabel">TICKETS LEFT THIS HOUR</b><span>shared by everyone · <span id="tixPool">40</span> per hour</span></div>
       </div>
       <div class="tixFoot"><span>New tickets in <b id="tixClock">--:--</b></span><span>You: <b id="tixYou">0</b> left</span></div>
+      <div id="tixClosed" class="tixClosed" hidden>
+        <div class="hand">Sorry, we're <b>CLOSED</b></div>
+        <div class="why" id="tixWhy">Claude went home.</div>
+        <div class="back">Back at 9 AM Eastern · opens in <b id="tixOpens">--:--</b> · the Warehouse is open</div>
+      </div>
     </div>
     <p id="makeNote" class="note"></p>
     <div class="row"><input id="makeIn" maxlength="60" placeholder="a grand piano, a jellyfish, my old MacBook…" autocomplete="off"><button id="makeGo">Make it</button></div>
+    <div id="whouse" class="whouse" hidden>
+      <div class="whHead">🏬 THE WAREHOUSE <span id="whCount"></span><span class="free">ALL FREE</span></div>
+      <div class="whNote">Everything anyone has fabricated so far. Throwing these costs no tickets.</div>
+      <div id="whList" class="whList"></div>
+    </div>
     <div class="chips"><button>a grand piano</button><button>a stack of pancakes</button><button>a disco ball</button><button>a jellyfish</button><button>a lawn flamingo</button><button>a bag of marbles</button></div>
     <p id="makeMsg" class="msg"></p>
   </div>

@@ -16,18 +16,20 @@ import { strengthOf, scaleStrength, BLADE, fmtForce } from './strength.js';
 import { buildOutOfOrder } from './outoforder.js';
 import { SessionPile, renderPileImage } from './sharepile.js';
 import { PileCam } from './pilecam.js';
+import { buildSafetyBoard } from './safetyboard.js';
 import { WORKER_URL } from './settings.js';
 import { Particles } from './particles.js';
 import { Audio } from './audio.js';
 import { generateRecipe, generatorAvailable } from './claude.js';
 import * as claudeGen from './claude.js';
+import { objectKey } from './prompt.js';
 
 const $ = (id) => document.getElementById(id);
 const isTouch = matchMedia('(pointer: coarse)').matches;
 const MAX_BODIES = isTouch ? 170 : 260;
 const DT = 1 / 180;
 
-let renderer, scene, rig, portal, camera, controls, world, eventQueue, air, rotor, fan, particles, tunnel, drops, sign;
+let renderer, scene, rig, portal, camera, controls, world, eventQueue, air, rotor, fan, particles, tunnel, drops, sign, safety;
 const absorbing = [];
 const audio = new Audio();
 const bodies = [];
@@ -57,15 +59,18 @@ async function boot() {
   world.integrationParameters.numSolverIterations = 6;
   eventQueue = new RAPIER.EventQueue(true);
   buildColliders(world, RAPIER);
+  buildHatch();
 
   air = new Air();
   rotor = new Rotor();
   fan = buildFan();
   sign = buildOutOfOrder(scene);
+  safety = buildSafetyBoard(scene);
   rig.add(fan.group);
   particles = new Particles(rig);
   drops = new DropCollector({
     onJudge: (root) => { verdict(root); root.done = true; },
+    onNoFuel: (d, refuel) => { const h = Math.max(1, Math.round(refuel / 3.6e6)); toast(`⛽ The portal is out of fuel. ${d.object.icon} ${d.object.name} is being held in Lost & Found (it refuels in about ${h} h).`); renderPayload(); },
     onSent: (d) => { showTally(); toast(`🌀 ${d.object.icon} ${d.object.name}: ${d.pieces.length} pieces delivered to World Builder`); if (pileCam && pileCam.running && d.id) pileCam.arrive(d); },
     onParked: (d) => (showTally(), toast(`🌀 ${d.object.icon} ${d.object.name} went through the portal (World Builder link not set up yet)`)),
     onFail: (d) => toast(`🌀 ${d.object.name} went through, but World Builder didn't answer. Kept it for later.`),
@@ -174,8 +179,8 @@ function createBody({ recipe, group, parts, pos, quat, vel, angvel, level, root,
 
 function removeBody(rec, reason, keepMesh = false) {
   const i = bodies.indexOf(rec);
-  if (i < 0) return;
-  bodies.splice(i, 1);
+  if (i >= 0) bodies.splice(i, 1);
+  else { const j = frozen.indexOf(rec); if (j < 0) return; frozen.splice(j, 1); }
   for (const h of rec.colliders) byCollider.delete(h);
   world.removeRigidBody(rec.body);
   if (!keepMesh) {
@@ -213,6 +218,7 @@ function spawnRecipe(recipe, pos, vel) {
 function trimBodies() {
   while (bodies.length > MAX_BODIES) {
     let idx = bodies.findIndex(b => b.level > 0 && b.group.position.x < TUN.fanX - 3);
+    if (idx < 0) idx = bodies.findIndex(b => b.level > 0 && !onHatch(b));   // spare the payload
     if (idx < 0) idx = bodies.findIndex(b => b.level > 0);
     if (idx < 0) idx = 0;
     removeBody(bodies[idx], 'dissolve');
@@ -506,6 +512,9 @@ function jamFan(reason, rec, k) {
   thr.value = 0; thr.oninput(); thr.disabled = true;
   audio.hit('clang', 8e5); audio.hit('thunk', 5e5); shake = 1;
   setTimeout(() => { sign.show(); audio.hit('clang', 3e4); }, 450);
+  if (quota) quota.lastJam = Date.now();
+  safety?.update(quota, { jammed: true });
+  try { const u = mailboxUrl().replace(/\/drops$/, ''); if (u) fetch(u + '/jam', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ by: jam.name }) }).catch(() => {}); } catch (e) { /* offline */ }
   const root = rec && rec.root;
   if (root && rec.recipe.id !== 'blade-shard') {
     const r = root.recipe;
@@ -575,11 +584,11 @@ async function repairFan() {
       const t = rec.body.translation(), rr = Math.hypot(t.y, t.z) || 1, rc = Math.min(1.7, Math.max(1.1, rr));
       for (const h of rec.colliders) world.getCollider(h)?.setSensor(true);
       rec.body.setGravityScale(0, true);
-      extracting.push({ rec, t0: performance.now(), ms: 1700, from: new THREE.Vector3(t.x, t.y, t.z), to: new THREE.Vector3(TUN.L + 1.2, t.y / rr * rc, t.z / rr * rc) });
+      extracting.push({ rec, t0: performance.now(), ms: 1700, from: new THREE.Vector3(t.x, t.y, t.z), to: new THREE.Vector3(TUN.L + 0.25, t.y / rr * rc, t.z / rr * rc) });
     }
     const big = lodged.reduce((a, b) => (b.mass > a.mass ? b : a));
     bill.push(950);
-    await repairStep(`Craning out the ${big.recipe.name.toLowerCase()} (into the portal it goes)`, 1800, (k) => { if (Math.random() < 0.05) audio.hit('thunk', 800); });
+    await repairStep(`Craning out the ${big.recipe.name.toLowerCase()} (onto the payload hatch it goes)`, 1800, (k) => { if (Math.random() < 0.05) audio.hit('thunk', 800); });
   }
   for (let k = 0; k < FAN.blades; k++) {
     const d0 = bladeDmg[k];
@@ -601,6 +610,7 @@ async function repairFan() {
   await repairStep('Resetting the breaker', 700, (k) => { if (k === 1) audio.hit('zap', 2e3); });
   jam = null; rotor.locked = false; thr.disabled = false; stallT = 0;
   sign.hide();
+  safety?.update(quota, { jammed: false });
   const total = bill.reduce((a, b) => a + b, 0) + 250;     // + call-out fee
   const life = lifetimeBill() + total;
   try { localStorage.setItem('shredBill', String(life)); } catch {}
@@ -716,6 +726,152 @@ async function openShare() {
   $('shareText').href = `sms:${/iPhone|iPad|Mac/.test(navigator.userAgent) ? '&' : '?'}body=${encodeURIComponent(text)}`;
 }
 
+// ------------------------------------------------------------------------------- payload hatch
+// Trapdoors above the portal. Debris collects on them as a payload; opening the hatch drops the
+// lot through the portal, and it goes to World Builder as one delivery: one request and one
+// write at the relay instead of one per object. It opens itself when full, after a long quiet
+// spell, or as you leave the page, so nothing gets stranded.
+const HATCH = { x: TUN.L + 1.45, R: 2.8, thick: 0.06, lip: 0.38 };
+const PAYLOAD_FULL = { pieces: 400 };   // a payload's piece budget
+// pieces that come to rest in the tray are frozen into static bodies: they still stack and
+// collide, but cost the simulation almost nothing and don't count against MAX_BODIES
+const frozen = [];
+let hatchColliders = [], hatchDoors = [], hatchState = 'closed', hatchT = 0, hatchQuiet = 0, payloadStat = { n: 0, pieces: 0, kg: 0, roots: new Set() }, lastPayloadCount = 0;
+// a round tray with a lip, just inside the portal's rim, so anything that does slide off still
+// falls through; two half-disc trapdoors hinged at the rim
+function buildHatch() {
+  const R = HATCH.R;
+  const fixed = world.createRigidBody(RAPIER.RigidBodyDesc.fixed());
+  const qz = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), Math.PI / 2);
+  hatchColliders.push(world.createCollider(RAPIER.ColliderDesc.cylinder(HATCH.thick, R).setTranslation(HATCH.x, 0, 0).setRotation({ x: qz.x, y: qz.y, z: qz.z, w: qz.w }).setFriction(0.8).setRestitution(0.1), fixed));
+  const N = 18;
+  for (let i = 0; i < N; i++) {
+    const a = (i / N) * Math.PI * 2, q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), a);
+    hatchColliders.push(world.createCollider(RAPIER.ColliderDesc.cuboid(HATCH.lip / 2, 0.04, (R + 0.06) * Math.PI / N * 1.15)
+      .setTranslation(HATCH.x - HATCH.thick - HATCH.lip / 2, (R + 0.04) * Math.cos(a), (R + 0.04) * Math.sin(a)).setRotation({ x: q.x, y: q.y, z: q.z, w: q.w }).setFriction(0.6), fixed));
+  }
+  const tex = (() => {
+    const cv = document.createElement('canvas'); cv.width = cv.height = 256; const c = cv.getContext('2d');
+    c.fillStyle = '#16161a'; c.fillRect(0, 0, 256, 256);
+    c.fillStyle = '#ffc21a';
+    for (let i = -256; i < 512; i += 40) { c.beginPath(); c.moveTo(i, 0); c.lineTo(i + 20, 0); c.lineTo(i + 20 - 256, 256); c.lineTo(i - 256, 256); c.fill(); }
+    const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(2, 2); return t;
+  })();
+  const mat = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.6, metalness: 0.3 });
+  const steel = new THREE.MeshStandardMaterial({ color: '#3a3f46', roughness: 0.5, metalness: 0.8, side: THREE.DoubleSide });
+  const g = new THREE.Group(); rig.add(g);
+  for (const side of [1, -1]) {
+    // half-disc whose straight edge lies on y = 0, rotated so its face normal is the tube axis
+    const geo = new THREE.CylinderGeometry(R, R, HATCH.thick * 2, 40, 1, false, side > 0 ? 0 : Math.PI, Math.PI).rotateZ(Math.PI / 2);
+    geo.translate(0, -side * R, 0);            // hinge line (y = ±R) at the pivot's origin
+    const pivot = new THREE.Group(); pivot.position.set(HATCH.x, side * R, 0);
+    const door = new THREE.Mesh(geo, mat); door.castShadow = door.receiveShadow = true;
+    pivot.add(door); g.add(pivot); hatchDoors.push({ pivot, side });
+  }
+  const rim = new THREE.Mesh(new THREE.CylinderGeometry(R + 0.06, R + 0.06, HATCH.lip, 48, 1, true).rotateZ(Math.PI / 2), steel);
+  rim.position.x = HATCH.x - HATCH.thick - HATCH.lip / 2; g.add(rim);
+  const lipRing = new THREE.Mesh(new THREE.TorusGeometry(R + 0.06, 0.06, 8, 64).rotateY(Math.PI / 2), steel);
+  lipRing.position.x = HATCH.x - HATCH.thick - HATCH.lip; g.add(lipRing);
+  const legLen = TUN.groundX - HATCH.x;
+  for (let i = 0; i < 4; i++) {
+    const a = Math.PI / 4 + i * Math.PI / 2;
+    const leg = new THREE.Mesh(new THREE.BoxGeometry(legLen, 0.1, 0.1), steel);
+    leg.position.set(HATCH.x + legLen / 2, (R + 0.06) * Math.cos(a), (R + 0.06) * Math.sin(a)); leg.castShadow = true; g.add(leg);
+  }
+}
+function freezeOnHatch(rec) {
+  const i = bodies.indexOf(rec); if (i < 0) return;
+  bodies.splice(i, 1); frozen.push(rec);
+  rec.body.setBodyType(RAPIER.RigidBodyType.Fixed, false);
+}
+function thawHatch() {
+  for (const rec of frozen.splice(0)) {
+    rec.body.setBodyType(RAPIER.RigidBodyType.Dynamic, true);
+    rec.body.setLinvel({ x: 1, y: 0, z: 0 }, true);
+    rec.rest = 0; bodies.push(rec);
+  }
+}
+function onHatch(rec) {
+  const t = rec.body.translation();
+  return t.x > TUN.L + 0.2 && t.x < HATCH.x + 0.1 && Math.hypot(t.y, t.z) < HATCH.R + 0.3;
+}
+function setDoors(k) { for (const d of hatchDoors) d.pivot.rotation.z = d.side * k * 1.45; }
+function openPayloadHatch(why) {
+  if (hatchState !== 'closed') return;
+  if (why === 'lever') { const l = $('plLever'); l.classList.add('pulled'); setTimeout(() => l.classList.remove('pulled'), 520); }
+  if (!payloadStat.n && why === 'lever') { audio.hit('thunk', 3000); toast('The hatch is empty. Shred something first.'); return; }
+  audio.start(); audio.hit('clang', 1.5e4); setTimeout(() => audio.whoosh(40), 250);
+  hatchState = 'opening'; hatchT = 0;
+  drops.hold = true;
+  for (const c of hatchColliders) c.setEnabled(false);
+  thawHatch();
+  for (const b of bodies) if (onHatch(b)) b.body.wakeUp();
+  portal.flash(0.6);
+  if (why === 'full') toast('📦 PAYLOAD FULL! Flushing it through the portal');
+  else if (why === 'idle') toast('📦 The hatch got bored and flushed itself');
+  else toast(`📦 Hatch open: ${payloadStat.n} thing${payloadStat.n === 1 ? '' : 's'} on the way to World Builder`);
+}
+let hatchClock = 0;
+function hatchTick() {
+  if (!hatchColliders.length) return;
+  const nowMs = performance.now(), dt = hatchClock ? Math.min(0.25, (nowMs - hatchClock) / 1000) : 0; hatchClock = nowMs;
+  // what's on the hatch right now
+  const roots = new Set(); let pieces = 0, kg = 0;
+  for (const b of [...bodies]) {
+    if (!onHatch(b)) { b.rest = 0; continue; }
+    roots.add(b.root); pieces++; kg += b.mass;
+    if (hatchState !== 'closed') continue;
+    const v = b.body.linvel(), w = b.body.angvel();
+    b.rest = (v.x * v.x + v.y * v.y + v.z * v.z < 0.04 && w.x * w.x + w.y * w.y + w.z * w.z < 0.5) ? (b.rest || 0) + dt : 0;
+    if (b.rest > 0.4) freezeOnHatch(b);
+  }
+  for (const b of frozen) { roots.add(b.root); pieces++; kg += b.mass; }
+  payloadStat = { n: roots.size, pieces, kg, roots };
+  if (hatchState === 'closed') {
+    drops.hold = true;
+    hatchQuiet = roots.size === lastPayloadCount ? hatchQuiet + dt : 0;
+    lastPayloadCount = roots.size;
+    if (pieces >= PAYLOAD_FULL.pieces) openPayloadHatch('full');
+    else if (roots.size && hatchQuiet > 120) openPayloadHatch('idle');
+  } else if (hatchState === 'opening') {
+    hatchT += dt; setDoors(Math.min(1, hatchT / 0.45));
+    if (hatchT > 0.45) { hatchState = 'open'; hatchT = 0; }
+  } else if (hatchState === 'open') {
+    hatchT += dt;
+    const falling = bodies.some(b => { const t = b.body.translation(); return t.x > TUN.L + 0.2 && Math.hypot(t.y, t.z) < PORTAL.R * 1.3; });
+    if ((!falling && hatchT > 1.2) || hatchT > 6) {
+      drops.finalizeAll();
+      const d = drops.flushPayload();
+      if (d && d.payload) toast(`🌀 📦 Payload delivered: ${d.objects.length} things, ${d.pieces.length} pieces, one trip`);
+      hatchState = 'closing'; hatchT = 0;
+    }
+  } else if (hatchState === 'closing') {
+    hatchT += dt; setDoors(Math.max(0, 1 - hatchT / 0.6));
+    if (hatchT > 0.6) { hatchState = 'closed'; for (const c of hatchColliders) c.setEnabled(true); hatchQuiet = 0; audio.hit('thunk', 2000); }
+  }
+  renderPayload();
+}
+function renderPayload() {
+  const el = $('payload'); if (!el || el.hidden) return;
+  const { n, pieces, kg } = payloadStat;
+  $('plCount').textContent = n;
+  $('plSub').textContent = n ? `${n === 1 ? 'thing' : 'things'} · ${pieces} pcs · ${kg < 1 ? Math.round(kg * 1000) + ' g' : kg.toFixed(kg < 10 ? 1 : 0) + ' kg'}` : 'hatch is empty';
+  $('plLever').classList.toggle('idle', !n || hatchState !== 'closed');
+  const full = Math.min(1, pieces / PAYLOAD_FULL.pieces);
+  $('plFill').style.width = (full * 100) + '%';
+  el.classList.toggle('busy', hatchState !== 'closed');
+  const lf = drops.parkedCount ? drops.parkedCount() : 0;
+  $('plLost').hidden = !lf; if (lf) $('plLost').textContent = `🧳 Lost & Found: ${lf}`;
+}
+// leaving the page: send whatever is on the hatch now, without the animation
+function flushInstantly() {
+  if (!drops || !hatchColliders.length) return;
+  thawHatch();
+  for (const b of [...bodies]) if (onHatch(b)) absorb(b);
+  drops.finalizeAll();
+  drops.flushPayload();
+}
+
 // ------------------------------------------------------------------------------- split view
 let pileCam = null;
 function mailboxUrl() {
@@ -738,7 +894,8 @@ function setPaneSource(src) {
     $('paneFrame').hidden = true; $('paneLive').hidden = true; $('paneFrame').src = 'about:blank';
     if (!pileCam) {
       pileCam = new PileCam($('pileCanvas'), mailboxUrl());
-      pileCam.onNote = (t) => { $('paneStat').textContent = `${t.pieces.toLocaleString()} pieces · ${t.kg.toFixed(0)} kg so far`; };
+      const stat = () => { const t = pileCam.total; $('paneStat').textContent = `${t.pieces.toLocaleString()} pieces · ${t.kg.toFixed(0)} kg so far${pileCam.napping ? ' · 💤 napping' : ''}`; };
+      pileCam.onNote = stat; pileCam.onNap = stat;
       if (!mailboxUrl()) $('paneStat').textContent = 'no mailbox set up';
     }
     pileCam.start(); pileCam.resize();
@@ -817,6 +974,7 @@ function loop(now) {
     if (k >= 1) { rig.remove(e.group); e.group.traverse(o => { if (o.isMesh && o.userData.ownGeo) o.geometry.dispose(); }); absorbing.splice(i, 1); }
   }
   drops.tick();
+  hatchTick(fdt);
   portal.update(now / 1000, fdt);
 
   // fan visuals
@@ -913,10 +1071,13 @@ function buildUI() {
   $('btnSound').classList.add('on');
   $('btnGust').onclick = () => { air.gust = 2.5; toast('Gust!'); };
   $('btnChaos').onclick = chaos;
-  $('btnClear').onclick = () => { for (const b of [...bodies]) removeBody(b, 'dissolve'); particles.clear(); roots.clear(); };
+  $('btnClear').onclick = () => { for (const b of [...bodies, ...frozen]) removeBody(b, 'dissolve'); particles.clear(); roots.clear(); };
   $('btnInfo').onclick = () => { $('info').hidden = !$('info').hidden; };
   $('btnShare').onclick = openShare;
   $('hatch').onclick = pullHatch;
+  $('plLever').onclick = () => openPayloadHatch('lever');
+  document.addEventListener('visibilitychange', () => { if (document.hidden) flushInstantly(); });
+  addEventListener('pagehide', flushInstantly);
   $('btnSplit').onclick = () => setSplit(!document.body.classList.contains('split'));
   $('paneClose').onclick = () => setSplit(false);
   $('paneSrc').onchange = () => setPaneSource($('paneSrc').value);
@@ -925,13 +1086,14 @@ function buildUI() {
   $('shareClose').onclick = () => { $('shareBox').hidden = true; };
   $('infoClose').onclick = () => { $('info').hidden = true; };
   $('start').onclick = () => {
-    $('start').hidden = true; audio.start(); $('hatch').hidden = false; $('hatch').classList.toggle('idle', !armed);
+    $('start').hidden = true; audio.start(); $('hatch').hidden = false; $('payload').hidden = false; $('hatch').classList.toggle('idle', !armed);
     if (rotor.setpoint === 0) { thr.value = 70; setThr(); }
     toast(isTouch ? 'Pick something below, then pull DOWN THE HATCH! (or flick it at the tunnel)' : 'Pick something below, then pull DOWN THE HATCH! (H), or click/flick to throw it');
   };
   // maker dialog
   $('makeGo').onclick = runMaker;
   $('makeIn').onkeydown = (e) => { if (e.key === 'Enter') runMaker(); };
+  $('makeIn').oninput = () => renderWarehouse();
   $('makeClose').onclick = () => { $('maker').hidden = true; };
   document.querySelectorAll('#maker .chips button').forEach(b => b.onclick = () => { $('makeIn').value = b.textContent; runMaker(); });
 
@@ -957,6 +1119,7 @@ function buildUI() {
     if (e.code === 'Space' && armed) { e.preventDefault(); throwArmed(renderer.domElement.clientWidth / 2, innerHeight / 2, null); }
     if (e.key === 'c') setCamera((camMode + 1) % CAMS.length);
     if (e.key === 'h' || e.key === 'H') pullHatch();
+    if (e.key === 'o' || e.key === 'O') openPayloadHatch('lever');
   });
 }
 
@@ -1199,6 +1362,7 @@ async function refreshQuota() {
   quotaAsked = performance.now();
   const q = await claudeGen.fetchQuota();
   if (q) { quota = q; quotaAt = performance.now(); }
+  safety?.update(quota, { jammed: !!jam });
   renderTickets();
 }
 function renderTickets() {
@@ -1208,31 +1372,87 @@ function renderTickets() {
   if (ms <= 0 && performance.now() - quotaAsked > 5000) refreshQuota();   // a new hour, a new batch
   const empty = quota.poolLeft <= 0;
   sign.hidden = false; sign.classList.toggle('empty', empty);
+  const closed = quota.open === false;
+  sign.classList.toggle('closed', closed);
+  $('tixClosed').hidden = !closed;
+  if (closed) {
+    const os = Math.max(0, Math.ceil((quota.opensIn - (performance.now() - quotaAt)) / 1000));
+    if (os <= 0 && performance.now() - quotaAsked > 5000) refreshQuota();
+    $('tixWhy').textContent = quota.excuse || 'Claude went home.';
+    $('tixOpens').textContent = `${Math.floor(os / 3600)}:${String(Math.floor(os / 60) % 60).padStart(2, '0')}:${String(os % 60).padStart(2, '0')}`;
+  }
   $('tixLeft').textContent = quota.poolLeft;
   $('tixPool').textContent = quota.pool;
   $('tixLabel').textContent = empty ? 'OUT OF TICKETS' : quota.poolLeft === 1 ? 'TICKET LEFT THIS HOUR' : 'TICKETS LEFT THIS HOUR';
   const s = Math.ceil(ms / 1000);
   $('tixClock').textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
-  $('tixYou').textContent = quota.youLeft;
-  if (badge) { badge.hidden = false; badge.textContent = '🎟 ' + quota.poolLeft; badge.classList.toggle('empty', empty); }
+  $('tixYou').textContent = Math.min(claudeGen.myTicketsLeft(), quota.poolLeft);
+  if (badge) { badge.hidden = false; badge.textContent = closed ? 'CLOSED' : '🎟 ' + quota.poolLeft; badge.classList.toggle('empty', empty || closed); }
+  updateMakeButton();
+}
+
+// ---- the Warehouse: everything anyone has fabricated, free to throw
+let warehouse = [], warehouseAt = 0;
+async function loadWarehouse() {
+  if (performance.now() - warehouseAt < 60000 && warehouse.length) { renderWarehouse(); return; }
+  warehouse = await claudeGen.fetchWarehouse(); warehouseAt = performance.now();
+  renderWarehouse();
+}
+function shelfMatch() { const k = objectKey($('makeIn').value); return k ? warehouse.find(w => w.k === k) : null; }
+function renderWarehouse() {
+  const box = $('whouse');
+  box.hidden = !warehouse.length && !quota;
+  if (box.hidden) return;
+  $('whCount').textContent = warehouse.length ? `· ${warehouse.length} thing${warehouse.length === 1 ? '' : 's'}` : '';
+  const q = objectKey($('makeIn').value), m = shelfMatch();
+  const list = warehouse.filter(w => !q || w.k.includes(q) || objectKey(w.name).includes(q)).slice(0, 120);
+  const el = $('whList'); el.innerHTML = '';
+  if (!list.length) { el.innerHTML = `<span class="none">${warehouse.length ? 'Nothing like that on the shelf yet. Make it!' : 'Empty shelves. Be the first to fabricate something.'}</span>`; }
+  for (const w of list) {
+    const b = document.createElement('button');
+    b.textContent = `${w.icon || '✨'} ${w.name}`;
+    if (m && m.k === w.k) b.classList.add('match');
+    b.onclick = () => grabFromShelf(w);
+    el.appendChild(b);
+  }
+  updateMakeButton();
+}
+function updateMakeButton() {
+  const m = shelfMatch(), closed = quota && quota.open === false, out = quota && quota.poolLeft <= 0;
+  const btn = $('makeGo');
+  if (m) { btn.textContent = 'Grab it (free)'; btn.disabled = false; }
+  else { btn.textContent = closed ? 'Closed' : 'Make it'; btn.disabled = !!(closed || (out && quota)) || btn.dataset.busy === '1'; }
+}
+async function grabFromShelf(w) {
+  $('makeMsg').textContent = `Fetching ${w.icon || ''} ${w.name} from the Warehouse…`;
+  try {
+    const raw = await claudeGen.fetchShelfItem(w.k);
+    const r = addGenerated(raw);
+    $('maker').hidden = true;
+    toast(`🏬 ${r.icon} ${r.name}, fresh off the Warehouse shelf (free). Throw it.`);
+  } catch (e) { $('makeMsg').textContent = e.message || String(e); }
 }
 
 async function openMaker() {
   $('maker').hidden = false;
   refreshQuota();
+  loadWarehouse();
   $('makeMsg').textContent = '';
   const ok = await generatorAvailable();
   $('makeNote').innerHTML = ok
     ? 'Claude designs it: shape, mass, materials, what sprays out and what it sounds like. Things someone already designed are free.'
     : 'Typing objects needs Claude: open the <b>Claude-hosted</b> version of Tunnel, or set up the Worker described in the README.';
   $('makeGo').disabled = !ok;
+  if (ok) updateMakeButton();
   setTimeout(() => $('makeIn').focus(), 50);
 }
 
 async function runMaker() {
   const what = $('makeIn').value.trim().slice(0, 60);
   if (!what) return;
-  $('makeGo').disabled = true;
+  const m = shelfMatch();
+  if (m) return grabFromShelf(m);
+  $('makeGo').dataset.busy = '1'; $('makeGo').disabled = true;
   const quips = ['Consulting Claude about the aerodynamics of', 'Estimating the shear strength of', 'Calculating how many pieces make', 'Asking the fan’s lawyer about'];
   $('makeMsg').textContent = `${quips[(Math.random() * quips.length) | 0]} “${what}”…`;
   try {
@@ -1241,11 +1461,13 @@ async function runMaker() {
     $('maker').hidden = true;
     if (quota && claudeGen.poolLeft !== null) { quota.poolLeft = claudeGen.poolLeft; quota.youLeft = Math.min(claudeGen.designsLeft ?? quota.youLeft, quota.poolLeft); renderTickets(); }
     const left = claudeGen.designsLeft;
-    if (left !== null && left <= 5) toast(`${r.icon} ${r.name} is ready. ${left === 0 ? 'That was your last new design this hour.' : `${left} new design${left === 1 ? '' : 's'} left this hour.`}`);
+    if (claudeGen.lastFromShelf) toast(`🏬 ${r.icon} ${r.name} was already in the Warehouse: free!`);
+    else warehouseAt = 0;   // it's on the shelf now
+    if (!claudeGen.lastFromShelf && left !== null && left <= 5) toast(`${r.icon} ${r.name} is ready. ${left === 0 ? 'That was your last new design this hour.' : `${left} new design${left === 1 ? '' : 's'} left this hour.`}`);
   } catch (e) {
     $('makeMsg').textContent = e.limit ? '⏳ ' + e.message : 'Claude couldn’t build that one: ' + (e.message || e);
     if (e.limit) refreshQuota();
-  } finally { $('makeGo').disabled = false; }
+  } finally { $('makeGo').dataset.busy = '0'; updateMakeButton(); }
 }
 
 function addGenerated(raw) {
@@ -1260,6 +1482,6 @@ function addGenerated(raw) {
   return r;
 }
 
-window.tunnel = { pile, share: () => openShare(), phys: (id) => recipePhys(recipes.find(r => r.id === id)), recipes: () => recipes, repair: () => repairFan(), get jam() { return jam; }, bladeDmg, addRecipe: addGenerated, get bodies() { return bodies; }, rotor: () => rotor, air: () => air, spawn: (id, x = -1.4) => spawnRecipe(recipes.find(r => r.id === id), new THREE.Vector3(x, (Math.random() - 0.5) * 0.6, (Math.random() - 0.5) * 0.6), new THREE.Vector3(2, 0, 0)), get drops() { return drops; }, setThrottle: (v) => { $('throttle').value = v; $('throttle').oninput(); }, setCamera, arm: (id) => arm(recipes.find(r => r.id === id)) };
+window.tunnel = { openHatch: () => openPayloadHatch('lever'), get payload() { return payloadStat; }, get hatchState() { return hatchState; }, pile, share: () => openShare(), phys: (id) => recipePhys(recipes.find(r => r.id === id)), recipes: () => recipes, repair: () => repairFan(), get jam() { return jam; }, bladeDmg, addRecipe: addGenerated, get bodies() { return bodies; }, rotor: () => rotor, air: () => air, spawn: (id, x = -1.4) => spawnRecipe(recipes.find(r => r.id === id), new THREE.Vector3(x, (Math.random() - 0.5) * 0.6, (Math.random() - 0.5) * 0.6), new THREE.Vector3(2, 0, 0)), get drops() { return drops; }, setThrottle: (v) => { $('throttle').value = v; $('throttle').oninput(); }, setCamera, arm: (id) => arm(recipes.find(r => r.id === id)) };
 
 boot().catch(e => { console.error(e); fail(e.message); });

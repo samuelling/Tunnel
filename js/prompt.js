@@ -35,3 +35,18 @@ Return ONLY a JSON object (no prose, no code fence) with this schema:
     "pattern" (optional): {"type":"stripes"|"bands"|"spots"|"segments","color":"#rrggbb","count":n,"colors":["#..",...]}}
 Use real-world dimensions in metres, y is up, objects sit roughly centred on the origin. Keep the largest dimension under 3 m. Make it recognisable and a bit charming.`;
 }
+
+// One key per object, so "a lava lamp", "Lava lamps" and "the LAVA LAMP" all find the same
+// Warehouse shelf. Shared by the page and the Worker.
+export function objectKey(name) {
+  let s = String(name || '').toLowerCase().normalize('NFKD').replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim()
+    .replace(/^(a|an|the|some|my|one|two|three|several|lots of|a bunch of|a pair of|a giant|giant)\s+/, '');
+  const words = s.split(' ');
+  let w = words[words.length - 1] || '';
+  if (w.length > 4 && w.endsWith('ies')) w = w.slice(0, -3) + 'y';
+  else if (w.length > 4 && /(ches|shes|sses|xes|zes)$/.test(w)) w = w.slice(0, -2);
+  else if (w.length > 3 && w.endsWith('s') && !/(ss|us|is|ous)$/.test(w)) w = w.slice(0, -1);
+  words[words.length - 1] = w;
+  return words.join(' ').slice(0, 60);
+}

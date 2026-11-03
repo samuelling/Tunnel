@@ -14,6 +14,7 @@
 import { WORKER_URL, DROP_URLS } from './settings.js';
 
 const MAX_PIECES = 120, MAX_POINTS = 40;
+const MAX_PAYLOAD_PIECES = 400;   // a hatch payload: several objects in one delivery
 
 export function dropTargets() {
   const out = new Set(DROP_URLS || []);
@@ -38,12 +39,17 @@ export function packPoints(points) {
 }
 
 export class DropCollector {
-  constructor({ onSent, onParked, onFail, onJudge }) {
+  constructor({ onSent, onParked, onFail, onJudge, onNoFuel }) {
+    this.onNoFuel = onNoFuel;
     this.onJudge = onJudge;
     this.open = new Map();
     this.onSent = onSent; this.onParked = onParked; this.onFail = onFail;
     this.sentPieces = (() => { try { return +localStorage.getItem('shredSent') || 0; } catch (e) { return 0; } })();
     this.last = null;
+    this.hold = false;      // payload hatch closed: finished drops wait in the outbox
+    this.outbox = [];
+    setTimeout(() => this.resendParked(), 4000);
+    setInterval(() => { if (this.parkedCount()) this.resendParked(); }, 10 * 60000);
   }
 
   add(root, pieces, particles = 0) {
@@ -63,14 +69,52 @@ export class DropCollector {
       if (!((settled && q(d) > 900) || q(d) > 12000)) continue;
       this.open.delete(id);
       if (d.root.firstHit && !d.root.done) this.onJudge?.(d.root);   // judge it now if still pending
-      this.dispatch(this.build(d));
+      const drop = this.build(d);
+      if (this.hold) this.outbox.push(drop); else { delete drop._root; this.dispatch(drop); }
     }
+  }
+
+  // close out everything still collecting (the hatch has opened: whatever made it is in)
+  finalizeAll() {
+    for (const [id, d] of this.open) {
+      this.open.delete(id);
+      if (!d.pieces.length) continue;
+      if (d.root.firstHit && !d.root.done) this.onJudge?.(d.root);
+      this.outbox.push(this.build(d));
+    }
+  }
+
+  // send the outbox as one payload (one request, one write at the relay)
+  flushPayload() {
+    const raw = this.outbox.splice(0);
+    if (!raw.length) return null;
+    // an object's pieces can be closed out in more than one batch: put them back together
+    const byRoot = new Map();
+    for (const d of raw) {
+      const g = byRoot.get(d._root);
+      if (!g) { byRoot.set(d._root, { ...d, pieces: [...d.pieces], particles: { ...d.particles } }); continue; }
+      g.pieces.push(...d.pieces); g.particles.count += d.particles?.count || 0;
+      if (d.object.verdict && d.object.verdict !== 'SHREDDED' && d.object.verdict !== 'SENT THROUGH WHOLE') g.object = d.object;
+    }
+    const list = [...byRoot.values()];
+    for (const d of list) { delete d._root; d.pieces.sort((a, b) => b.m - a.m); d.pieces = d.pieces.slice(0, MAX_PIECES); }
+    const drop = list.length === 1 ? list[0] : mergeDrops(list);
+    this.dispatch(drop);
+    return drop;
+  }
+
+  resendParked() {
+    let q = [];
+    try { q = JSON.parse(localStorage.getItem('shredQueue') || '[]'); localStorage.removeItem('shredQueue'); this._parked = 0; } catch (e) { return; }
+    if (!dropTargets().length) { for (const d of q.reverse()) this.park(d); return; }
+    for (const d of q.reverse()) { this.sentPieces -= d.pieces.length; this.dispatch(d); }
   }
 
   build(d) {
     const r = d.root.recipe;
     const pieces = d.pieces.sort((a, b) => b.m - a.m).slice(0, MAX_PIECES);
     return {
+      _root: d.root.id,
       v: 1,
       id: (crypto.randomUUID ? crypto.randomUUID() : String(Math.random()).slice(2)),
       at: Date.now(),
@@ -90,10 +134,11 @@ export class DropCollector {
     this.sentPieces += n;
     try { localStorage.setItem('shredSent', String(this.sentPieces)); } catch (e) { /* ignore */ }
     if (!targets.length) { this.park(drop); this.onParked?.(drop); return; }
-    let ok = false;
+    let ok = false, noFuel = null;
     await Promise.all(targets.map(async (url) => {
       try {
         const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(drop) });
+        if (res.status === 503 && res.headers.get('x-portal') === 'out-of-fuel') { try { noFuel = (await res.json()).refuelIn || 0; } catch (e) { noFuel = 0; } return; }
         if (res.ok) {
           ok = true;
           // the relay assigns the drop's id (which seeds its place on the pile); keep it
@@ -101,16 +146,57 @@ export class DropCollector {
         }
       } catch (e) { /* unreachable target */ }
     }));
-    if (ok) this.onSent?.(drop); else { this.park(drop); this.onFail?.(drop); }
+    if (ok) this.onSent?.(drop);
+    else if (noFuel !== null) { this.park(drop); this.onNoFuel?.(drop, noFuel); }
+    else { this.park(drop); this.onFail?.(drop); }
   }
 
-  // keep a few undelivered drops locally (newest first)
+  parkedCount() {
+    if (this._parked === undefined) { try { this._parked = JSON.parse(localStorage.getItem('shredQueue') || '[]').length; } catch (e) { this._parked = 0; } }
+    return this._parked;
+  }
+
+  // Lost & Found: keep a few undelivered drops locally (newest first)
   park(drop) {
     try {
       const q = JSON.parse(localStorage.getItem('shredQueue') || '[]');
       q.unshift(drop);
-      while (q.length > 6 || JSON.stringify(q).length > 1.5e6) q.pop();
+      while (q.length > 12 || JSON.stringify(q).length > 3e6) q.pop();
       localStorage.setItem('shredQueue', JSON.stringify(q));
+      this._parked = q.length;
     } catch (e) { /* storage full or blocked */ }
   }
+}
+
+// Several drops → one payload. Each object keeps a fair share of the piece budget, and pieces
+// carry fewer hull points when the payload is big, so it stays well under the relay's size limit.
+export function mergeDrops(list) {
+  const total = list.reduce((s, d) => s + d.pieces.length, 0);
+  const budget = Math.min(MAX_PAYLOAD_PIECES, total);
+  const pts = total > 200 ? 24 : MAX_POINTS;
+  const pieces = [];
+  for (const d of list) {
+    const share = Math.max(Math.min(8, d.pieces.length), Math.round(budget * d.pieces.length / total));
+    for (const pc of d.pieces.slice(0, share)) {
+      const n = pc.p.length / 3, step = Math.max(1, Math.ceil(n / pts));
+      const p = [];
+      for (let i = 0; i < n; i += step) p.push(pc.p[i * 3], pc.p[i * 3 + 1], pc.p[i * 3 + 2]);
+      pieces.push({ ...pc, p });
+    }
+  }
+  const objects = list.map(d => ({ name: d.object.name, icon: d.object.icon, verdict: d.object.verdict, mass: d.object.mass, pieces: d.pieces.length }));
+  const names = objects.map(o => o.name).join(', ');
+  return {
+    v: 1,
+    id: (crypto.randomUUID ? crypto.randomUUID() : String(Math.random()).slice(2)),
+    at: Date.now(),
+    source: 'shred-hole',
+    payload: true,
+    object: { name: `Payload: ${objects.length} things`, icon: '📦', verdict: 'PAYLOAD DELIVERED', quip: names.slice(0, 200), mass: +objects.reduce((s, o) => s + (o.mass || 0), 0).toFixed(3) },
+    objects,
+    spray: list[0].spray,
+    colors: [...new Set(list.flatMap(d => d.colors || []))].slice(0, 8),
+    pieces: pieces.slice(0, MAX_PAYLOAD_PIECES),
+    particles: { count: list.reduce((s, d) => s + (d.particles?.count || 0), 0), colors: [...new Set(list.flatMap(d => d.particles?.colors || []))].slice(0, 4) },
+  };
 }

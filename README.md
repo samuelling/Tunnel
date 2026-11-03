@@ -56,9 +56,14 @@ There are two ways the page can reach Claude:
 1. **Claude-hosted version (artifact).** The page asks Claude directly. Each viewer gets a consent prompt and it runs on their own Claude account. Nothing to set up.
 2. **GitHub Pages.** A small Cloudflare Worker (`worker/`) holds an API key and only accepts `{"object": "<name>"}`. The prompt is built server-side, so the Worker can't be used as a general Claude proxy. It rate-limits each visitor and caches each object name for a week.
 
-### Shred tickets (token budget)
+### Budget, in fun clothes
 
-New Claude designs come out of a **shared hourly pool** (`GEN_POOL_PER_HOUR`, default 40) with a **per-person cap** (`GEN_PER_HOUR`, default 20, per connecting IP). Both are counted per clock hour in the `DROPS` KV namespace. Objects someone already designed are cached for a week and cost no tickets. `GET /quota` returns `{pool, poolLeft, perPerson, youLeft, resetsIn}`, which drives the safety-board-style ticket sign in the ✨ dialog and the 🎟 badge on the tile. The 6-per-minute limiter and the Console spend limit remain the hard ceilings. KV is eventually consistent, so a burst from several places at once can slip a few past the cap.
+- **The Fabricator** (new Claude designs) keeps shop hours: a shared hourly pool (`GEN_POOL_PER_HOUR`, 40), a daily cap (`GEN_PER_DAY`, 150) after which it's **CLOSED** until 9 AM Eastern with a rotating excuse ("Claude went home."), and a personal 20 per hour counted in the visitor's browser (`GEN_PER_HOUR`). Each new design costs the Worker **one** KV write.
+- **The Warehouse**: everything ever fabricated sits on a public shelf (`GET /warehouse`), free to throw. Names are matched loosely (`objectKey()` in `js/prompt.js`): "a lava lamp", "Lava Lamps" and "the LAVA LAMP" are one object.
+- **The payload hatch**: debris collects in a tray above the portal (resting pieces are frozen into static bodies, so it costs the simulation little). **OPEN THE HATCH** (or O) sends it all as one delivery: one request and one write instead of one per object. It opens itself when full (400 pieces), after two quiet minutes, or when you leave the page.
+- **Portal fuel**: a daily budget of deliveries (`FUEL_PER_DAY`, 600, under Cloudflare's 1,000 free writes). When it runs out, deliveries wait in **Lost & Found** (localStorage) and go out after it refuels at 00:00 UTC.
+- **The pile naps**: Pile Cam and World Builder back off from checking every 6 s to once a minute when nothing arrives, and stop while the tab is hidden. The Worker serves readers a shared 10 s copy.
+- **The safety board** by the portal: DAYS SINCE THE FAN JAMMED (shared by everyone, `POST /jam`), portal fuel, and whether the Fabricator is open.
 
 ### Deploying the Worker
 
@@ -89,6 +94,7 @@ js/strength.js   breakability: material table, E_break and cutting force, blade 
 js/outoforder.js the OUT OF ORDER sign
 js/sharepile.js  session pile → heap render + inventory → share image
 js/pilecam.js    split view: World Builder's Shred Pile, standalone, live from the mailbox
+js/safetyboard.js the safety board by the portal
 js/bigstuff.js   the big stuff (bank safe, granite boulder and manhole cover are the fan-jammers): fridge, mannequin, toilet, cart, office chair, couch, grandfather clock, upright piano, pool flamingo, vending machine, clawfoot tub, giant teddy, disco ball, inflatable tube man
 js/prompt.js     the object-design prompt (shared with the Worker)
 js/fracture.js   convex-chunk shattering
