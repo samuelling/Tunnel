@@ -916,6 +916,7 @@ function buildUI() {
   $('btnClear').onclick = () => { for (const b of [...bodies]) removeBody(b, 'dissolve'); particles.clear(); roots.clear(); };
   $('btnInfo').onclick = () => { $('info').hidden = !$('info').hidden; };
   $('btnShare').onclick = openShare;
+  $('hatch').onclick = pullHatch;
   $('btnSplit').onclick = () => setSplit(!document.body.classList.contains('split'));
   $('paneClose').onclick = () => setSplit(false);
   $('paneSrc').onchange = () => setPaneSource($('paneSrc').value);
@@ -924,9 +925,9 @@ function buildUI() {
   $('shareClose').onclick = () => { $('shareBox').hidden = true; };
   $('infoClose').onclick = () => { $('info').hidden = true; };
   $('start').onclick = () => {
-    $('start').hidden = true; audio.start();
+    $('start').hidden = true; audio.start(); $('hatch').hidden = false; $('hatch').classList.toggle('idle', !armed);
     if (rotor.setpoint === 0) { thr.value = 70; setThr(); }
-    toast(isTouch ? 'Pick something below, then flick it at the tunnel' : 'Pick something below, then click or flick to throw it');
+    toast(isTouch ? 'Pick something below, then pull DOWN THE HATCH! (or flick it at the tunnel)' : 'Pick something below, then pull DOWN THE HATCH! (H), or click/flick to throw it');
   };
   // maker dialog
   $('makeGo').onclick = runMaker;
@@ -955,6 +956,7 @@ function buildUI() {
     if (e.target.tagName === 'INPUT') return;
     if (e.code === 'Space' && armed) { e.preventDefault(); throwArmed(renderer.domElement.clientWidth / 2, innerHeight / 2, null); }
     if (e.key === 'c') setCamera((camMode + 1) % CAMS.length);
+    if (e.key === 'h' || e.key === 'H') pullHatch();
   });
 }
 
@@ -971,6 +973,7 @@ const escapeHtml = (s) => s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;
 
 function arm(r) {
   armed = r;
+  $('hatch').classList.toggle('idle', !r);
   document.querySelectorAll('#tray .item').forEach(el => el.classList.toggle('on', r && el.dataset.id === r.id));
   if (r) {
     controls.mouseButtons = { LEFT: null, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.ROTATE };
@@ -1009,7 +1012,7 @@ function showCard(r) {
   if (compactUI()) {
     $('card').classList.add('mini');
     $('card').innerHTML = `<b>${escapeHtml(r.name)}</b> <span class="facts"><span><i>${fmtMass(m)}</i></span><span>${Lc.toFixed(1)} m</span><span>breaks at <i>${fmtE(ph.Ebreak)}</i></span>${verdictTxt ? `<span class="warn">${verdictTxt}</span>` : ''}</span>
-      <div class="hint">Flick the scene to throw · tap here to hide</div>`;
+      <div class="hint">Pull the lever or flick the scene · tap here to hide</div>`;
     $('card').hidden = false;
     clearTimeout(showCard.h);
     showCard.h = setTimeout(() => { $('card').hidden = true; }, 3500);
@@ -1068,6 +1071,26 @@ function physFor(rec) {
 
 const ray = new THREE.Raycaster();
 const qInv = () => rig.quaternion.clone().invert();
+// DOWN THE HATCH!: drop the selected object straight down the middle of the hopper
+function pullHatch() {
+  const h = $('hatch');
+  if (!armed) {
+    h.classList.remove('wiggle'); void h.offsetWidth; h.classList.add('wiggle');
+    toast(compactUI() ? 'Pick something from the tray first' : 'Pick something from the tray first, then pull the lever');
+    return;
+  }
+  audio.start();
+  h.classList.add('pulled');
+  audio.hit('thunk', 4000); setTimeout(() => audio.hit('clang', 900), 90);
+  setTimeout(() => h.classList.remove('pulled'), 520);
+  const rad = recipeRadius(armed), lim = Math.max(0, Math.min(0.35, TUN.R - rad - 0.3));
+  const a = Math.random() * Math.PI * 2, r = Math.random() * lim;
+  const wp = new THREE.Vector3(Math.cos(a) * r, TUN.groundX + 1.4 + Math.min(1.2, rad * 0.6), Math.sin(a) * r);
+  const wv = new THREE.Vector3((Math.random() - 0.5) * 0.3, -3, (Math.random() - 0.5) * 0.3);
+  spawnRecipe(armed, rig.worldToLocal(wp), wv.applyQuaternion(qInv()));
+  if (compactUI()) $('card').hidden = true;
+}
+
 function throwArmed(sx, sy, swipe) {
   if (!armed) return;
   audio.start();
