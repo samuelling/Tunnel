@@ -68,9 +68,12 @@ export function buildScene(renderer) {
   // a ring of stencilled warnings around the portal
   const ringTex = canvasTex(2048, 256, (c, W, H) => {
     c.clearRect(0, 0, W, H);
-    c.fillStyle = 'rgba(255,198,26,0.85)'; c.font = '900 120px Impact, "Arial Black", sans-serif'; c.textAlign = 'center';
+    // the whole message exactly fills the strip, so it tiles round the ring with no cut-off words
     const msg = 'PORTAL TO WORLD BUILDER  ·  MIND THE GAP  ·  NO REFUNDS  ·  ';
-    c.fillText(msg, W / 2, 160);
+    c.font = '900 120px Impact, "Arial Black", sans-serif';
+    const size = Math.min(150, 120 * W / c.measureText(msg).width);
+    c.fillStyle = 'rgba(255,198,26,0.85)'; c.font = `900 ${size.toFixed(1)}px Impact, "Arial Black", sans-serif`; c.textAlign = 'left';
+    c.fillText(msg, 0, 128 + size * 0.36);
   });
   const ring = new THREE.Mesh(new THREE.RingGeometry(PORTAL.R + 0.45, PORTAL.R + 1.25, 128, 1), new THREE.MeshStandardMaterial({ map: ringTex, transparent: true, roughness: 0.9, depthWrite: false }));
   // remap ring UVs so the text wraps around it

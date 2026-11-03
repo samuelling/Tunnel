@@ -889,6 +889,41 @@ function flushInstantly() {
   drops.flushPayload();
 }
 
+// ------------------------------------------------------------------------------- title screen
+// TAP TO START runs the title through a strip-cut shredder: the words are cut into vertical
+// strips that get dragged down, wobble, and drop out of the bottom of the screen.
+function shredTitle() {
+  const start = $('start'), st = start.querySelector('.st');
+  start.dataset.going = '1';
+  start.style.pointerEvents = 'none';
+  let fade = null;
+  const done = () => { start.hidden = true; start.style.pointerEvents = ''; fade?.cancel(); delete start.dataset.going; box?.remove(); st.style.visibility = ''; };
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches || !st.animate) { start.hidden = true; delete start.dataset.going; start.style.pointerEvents = ''; return; }
+  const r = st.getBoundingClientRect();
+  const box = document.createElement('div'); box.className = 'stShred';   // wears the title's styles
+  Object.assign(box.style, { position: 'fixed', left: r.left + 'px', top: r.top + 'px', width: r.width + 'px', height: r.height + 'px', zIndex: 21, pointerEvents: 'none' });
+  const n = Math.max(12, Math.min(34, Math.round(r.width / 22))), w = r.width / n;
+  for (let i = 0; i < n; i++) {
+    const c = st.cloneNode(true);
+    Object.assign(c.style, { position: 'absolute', left: 0, top: 0, width: r.width + 'px', margin: 0, boxSizing: 'border-box',
+      clipPath: `inset(0 ${(r.width - (i + 1) * w - 0.5).toFixed(1)}px 0 ${(i * w - 0.5).toFixed(1)}px)`, transformOrigin: `${(i + 0.5) * w}px 0`, willChange: 'transform' });
+    box.appendChild(c);
+    const side = (i + 0.5) / n - 0.5, jx = side * 60 + (Math.random() - 0.5) * 30, rot = (Math.random() - 0.5) * 28 + side * 20;
+    const fall = innerHeight - r.top + 80 + Math.random() * 120, delay = Math.abs(side) * 120 + Math.random() * 140;
+    c.animate([
+      { transform: 'translate(0, 0) rotate(0deg)' },
+      { transform: `translate(${(jx * 0.15).toFixed(1)}px, ${(8 + Math.random() * 14).toFixed(1)}px) rotate(${(rot * 0.08).toFixed(1)}deg)`, offset: 0.18 },   // bitten by the blades
+      { transform: `translate(${(jx * 0.4).toFixed(1)}px, ${(r.height * 0.18).toFixed(1)}px) rotate(${(rot * 0.35).toFixed(1)}deg)`, offset: 0.42 },
+      { transform: `translate(${jx.toFixed(1)}px, ${fall.toFixed(0)}px) rotate(${rot.toFixed(1)}deg)`, opacity: 0.85 },
+    ], { duration: 1050 + Math.random() * 350, delay, easing: 'cubic-bezier(.45,.05,.85,.55)', fill: 'forwards' });
+  }
+  document.body.appendChild(box);
+  st.style.visibility = 'hidden';
+  fade = start.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 800, delay: 250, easing: 'ease-out', fill: 'forwards' });
+  audio.hit('tear', 4e4); setTimeout(() => audio.hit('crunch', 1.5e4), 120); setTimeout(() => audio.hit('tear', 2e4), 320);
+  setTimeout(done, 1750);
+}
+
 // ------------------------------------------------------------------------------- teleport
 function worldBuilderUrl() {
   let u = ''; try { u = localStorage.getItem('wbLiveUrl') || ''; } catch {}
@@ -1233,7 +1268,8 @@ function buildUI() {
   $('shareClose').onclick = () => { $('shareBox').hidden = true; };
   $('infoClose').onclick = () => { $('info').hidden = true; };
   $('start').onclick = () => {
-    $('start').hidden = true; audio.start(); stats.start(); $('hatch').hidden = false; $('payload').hidden = false;
+    if ($('start').dataset.going) return;
+    audio.start(); stats.start(); shredTitle(); $('hatch').hidden = false; $('payload').hidden = false;
     if (!armed) { const c = recipes.find(r => r.id === 'couch'); if (c) arm(c); }   // a couch is ready to go: pull the lever
     $('hatch').classList.toggle('idle', !armed);
     if (rotor.setpoint === 0) { thr.value = 70; setThr(); }
