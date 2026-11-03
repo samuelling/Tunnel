@@ -22,7 +22,7 @@ import { Particles } from './particles.js';
 import { Audio } from './audio.js';
 import { generateRecipe, generatorAvailable } from './claude.js';
 import * as claudeGen from './claude.js';
-import { objectKey } from './prompt.js';
+import { objectKey, looseKey } from './prompt.js';
 
 const $ = (id) => document.getElementById(id);
 const isTouch = matchMedia('(pointer: coarse)').matches;
@@ -1483,7 +1483,16 @@ async function loadWarehouse() {
   warehouse = await claudeGen.fetchWarehouse(); warehouseAt = performance.now();
   renderWarehouse();
 }
-function shelfMatch() { const k = objectKey($('makeIn').value); return k ? warehouse.find(w => w.k === k) : null; }
+function shelfMatch() {
+  const v = $('makeIn').value, k = objectKey(v), lk = looseKey(v);
+  return k ? warehouse.find(w => w.k === k) || warehouse.find(w => looseKey(w.k) === lk) || null : null;
+}
+// already in the tray (a built-in like the fridge, or something made this session)? no Claude needed
+function trayMatch() {
+  const lk = looseKey($('makeIn').value);
+  if (!lk || lk.length < 3) return null;
+  return recipes.find(r => r.id !== 'blade-shard' && (looseKey(r.name) === lk || (lk.length >= 4 && looseKey(r.name).endsWith(' ' + lk)))) || null;
+}
 function renderWarehouse() {
   const box = $('whouse');
   box.hidden = !warehouse.length && !quota;
@@ -1505,7 +1514,8 @@ function renderWarehouse() {
 function updateMakeButton() {
   const m = shelfMatch(), closed = quota && quota.open === false, out = quota && quota.poolLeft <= 0;
   const btn = $('makeGo');
-  if (m) { btn.textContent = 'Grab it (free)'; btn.disabled = false; }
+  if (trayMatch()) { btn.textContent = 'In the tray (free)'; btn.disabled = false; }
+  else if (m) { btn.textContent = 'Grab it (free)'; btn.disabled = false; }
   else { btn.textContent = closed ? 'Closed' : 'Make it'; btn.disabled = !!(closed || (out && quota)) || btn.dataset.busy === '1'; }
 }
 async function grabFromShelf(w) {
@@ -1536,6 +1546,8 @@ async function openMaker() {
 async function runMaker() {
   const what = $('makeIn').value.trim().slice(0, 60);
   if (!what) return;
+  const t = trayMatch();
+  if (t) { arm(t); $('maker').hidden = true; toast(`${t.icon} ${t.name} is already in the tray. Free, no ticket.`); return; }
   const m = shelfMatch();
   if (m) return grabFromShelf(m);
   $('makeGo').dataset.busy = '1'; $('makeGo').disabled = true;

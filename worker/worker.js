@@ -24,9 +24,13 @@
 //    without its recipes, and the pile is stored one drop per line behind a one-line header, so
 //    "anything new since T?" is answered from the header alone.
 //  • Drops are stored slim (Debris Drop v2, js/dropcodec.js), about 4× smaller than v1.
+//  • Claude tokens: the design brief is a cached system prompt (repeat reads cost a small fraction
+//    of normal input), the reply is asked for as minified JSON without default-valued fields and
+//    with ≤16 parts, max_tokens is 2000, and names that differ only by size words ("a big donut")
+//    come off the shelf free. Running totals are on /quota as `tokens`.
 //  • POSTs from the page are sent as text/plain, so browsers skip the CORS preflight (one
 //    request per POST, not two); real preflights are cached for a day.
-import { recipePrompt, objectKey } from '../js/prompt.js';
+import { RECIPE_SYSTEM, recipeUser, objectKey, looseKey } from '../js/prompt.js';
 import { slimDrop } from '../js/dropcodec.js';
 
 const DEFAULT_ORIGINS = ['https://samuelling.github.io'];
@@ -79,7 +83,7 @@ function roll(fab, now) {
   return fab;
 }
 // the Warehouse as readers see it: counters + names, no recipes (a fraction of the size)
-const lite = (fab) => ({ ...fab, shelf: fab.shelf.map(({ k, name, icon, at }) => ({ k, name, icon, at })) });
+const lite = (fab) => ({ ...fab, shelf: fab.shelf.map(({ k, name, icon, at }) => ({ k, name, icon, at })) });   // tokens ride along
 const FAB_TTL = 30;
 function cacheLite(ctx, fab) {
   ctx.waitUntil(caches.default.put(new Request(CACHE + 'fab-lite'), new Response(JSON.stringify(lite(fab)), { headers: { 'cache-control': `max-age=${FAB_TTL}` } })));
@@ -207,6 +211,7 @@ export default {
       const [fab, head] = await Promise.all([cachedFab(env, ctx), pileHead(env, ctx)]);
       const out = { ...status(fab, env, now), ...fuelStatus(head, env, now), on: !!env.ANTHROPIC_API_KEY, wire: 2 };
       if (url.searchParams.has('shelf')) out.items = shelfList(fab);   // the Fabricator dialog asks for both at once
+      if (fab.tokens) out.tokens = fab.tokens;   // running total of Claude tokens spent on designs
       return json(out, 200, brief);
     }
     if (path === '/warehouse') return json({ items: shelfList(await cachedFab(env, ctx)) }, 200, brief);
@@ -238,8 +243,10 @@ export default {
 
     const seen = await cachedFab(env, ctx);
     // 1. the Warehouse: anyone made it before? free
-    if (seen.shelf.some(x => x.k === k)) {
-      const it = await shelfItem(env, ctx, k);
+    const lk = looseKey(what);
+    const match = seen.shelf.find(x => x.k === k) || seen.shelf.find(x => looseKey(x.k) === lk);   // "a big donut" = "donut"
+    if (match) {
+      const it = await shelfItem(env, ctx, match.k);
       if (it) return reply({ recipe: it.recipe, shelf: true }, 200, { 'x-cache': 'shelf' });
     }
     if (!env.ANTHROPIC_API_KEY) return reply('“Type anything” isn’t switched on yet: the Worker has no Claude API key. The built-in objects all work.', 501);
@@ -253,23 +260,31 @@ export default {
       const mins = Math.max(1, Math.ceil(st.resetsIn / 6e4));
       return reply(`The Fabricator is out of tickets for this hour. A new batch of ${st.pool} arrives in about ${mins} min. Everything in the Warehouse is still free.`, 429, { 'x-shop': 'tickets' });
     }
-    // 3. Claude designs it
+    // 3. Claude designs it. The brief is the system prompt, marked for caching (it's identical every
+    //    time); only the object's name is new. max_tokens leaves room for a 16-part design (~1k).
     const r = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: { 'x-api-key': env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-      body: JSON.stringify({ model: env.MODEL || 'claude-sonnet-5-5', max_tokens: 3000, messages: [{ role: 'user', content: recipePrompt(what) }] }),
+      body: JSON.stringify({
+        model: env.MODEL || 'claude-sonnet-5-5', max_tokens: +env.MAX_TOKENS || 2000,
+        system: [{ type: 'text', text: RECIPE_SYSTEM, cache_control: { type: 'ephemeral' } }],
+        messages: [{ role: 'user', content: recipeUser(what) }],
+      }),
     });
     if (!r.ok) return reply('Claude is busy: ' + (await r.text()).slice(0, 200), 502);
     const j = await r.json();
     const text = (j.content || []).map(c => c.text || '').join('');
     const a = text.indexOf('{'), b = text.lastIndexOf('}');
     let recipe;
-    try { recipe = JSON.parse(text.slice(a, b + 1)); } catch (e) { return reply('Claude returned something unparseable', 502); }
-    // 4. one write: count it and shelve it (re-read first so a parallel shelving isn't lost)
+    try { recipe = JSON.parse(text.slice(a, b + 1)); } catch (e) { return reply(j.stop_reason === 'max_tokens' ? 'That design got too elaborate. Try something simpler.' : 'Claude returned something unparseable', 502); }
+    // 4. one write: count it, shelve it and add up the tokens (re-read first so a parallel shelving isn't lost)
     const fab = roll(await readFab(env), now);
     fab.dayUsed++; fab.hourUsed++;
     if (!fab.shelf.some(x => x.k === k)) fab.shelf.push({ k, name: recipe.name || what, icon: recipe.icon || '✨', at: now, recipe });
     while (fab.shelf.length > SHELF_MAX) fab.shelf.shift();
+    const u = j.usage || {}, t = fab.tokens || (fab.tokens = { n: 0, in: 0, out: 0, cacheRead: 0, cacheWrite: 0 });
+    t.n++; t.in += u.input_tokens || 0; t.out += u.output_tokens || 0;
+    t.cacheRead += u.cache_read_input_tokens || 0; t.cacheWrite += u.cache_creation_input_tokens || 0;
     await writeFab(env, ctx, fab);
     const after = status(fab, env, now);
     return reply({ recipe }, 200, { 'x-cache': 'miss', 'x-pool-left': String(after.poolLeft), 'x-day-left': String(after.dayLeft) });

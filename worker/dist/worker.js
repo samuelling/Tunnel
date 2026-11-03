@@ -2,36 +2,35 @@
 var SPRAYS = ["juice", "yolk", "pulp", "seeds", "confetti", "paper", "feathers", "dust", "shards", "glass", "sparks", "foam", "plastic", "fabric", "food", "cash"];
 var SOUNDS = ["squeak", "squish", "splat", "crack", "shatter", "glass", "clang", "thunk", "pop", "tear", "squawk", "crunch", "zap"];
 var MATERIAL_NAMES = ["plastic", "rubber", "metal", "chrome", "steel", "iron", "glass", "ceramic", "wood", "fruit", "paper", "fabric", "stone", "food", "glow"];
-function recipePrompt(what) {
-  return `You design objects for a silly-but-physically-grounded 3D wind tunnel game where objects get blown into a giant fan and shredded ("Will It Blend?" energy). Design: "${what}".
+var RECIPE_SYSTEM = `You design objects for a silly-but-physically-grounded 3D wind tunnel game where objects get blown into a giant fan and shredded ("Will It Blend?" energy). The user names an object; you reply with its design.
 
-Return ONLY a JSON object (no prose, no code fence) with this schema:
+Reply with ONLY one line of minified JSON (no spaces, no prose, no code fence). Round numbers to 2 decimals (3 only below 0.05). Leave out any field at its default.
 {
  "name": short display name,
  "icon": one emoji,
- "mass": REAL total mass in kg. This matters: breakability is computed from the materials, the size and how solid the thing is (mass \xF7 volume), so a hollow fridge and a solid safe of the same size must have very different masses,
- "impact": newtons of contact force that breaks it when it hits the floor/walls (0 = never; egg 45, vase 600, teapot 1400),
- "unbreakable": almost always false (strength is simulated); true only for something like a bowling ball that should never shatter,
- "pop": true for inflatables that pop,
+ "mass": REAL total mass in kg. Breakability is computed from the materials, the size and how solid the thing is (mass \xF7 volume), so a hollow fridge and a solid safe of the same size need very different masses,
+ "impact": newtons of contact force that breaks it hitting the floor/walls (0 = never; egg 45, vase 600, teapot 1400),
+ "unbreakable": default false; true only for something like a bowling ball that should never shatter,
+ "pop": default false; true for inflatables that pop,
  "spray": one of ${JSON.stringify(SPRAYS)} (what flies out when chopped),
  "sound": one of ${JSON.stringify(SOUNDS)},
  "inner": hex colour of its insides,
- "aero": "plate" if it is thin and flat (paper, cards, pizza), else "auto",
- "count": how many copies to throw at once (1 unless it is naturally a bunch, e.g. a deck of cards = 26),
+ "aero": default "auto"; "plate" if thin and flat (paper, cards, pizza),
+ "count": default 1; more only if it is naturally a bunch (a deck of cards = 26),
  "blend": short irreverent verdict if it gets shredded (under 70 chars),
  "survive": short irreverent verdict if it survives (under 70 chars),
- "fact": one true, fun physics or material fact about it (under 160 chars),
- "parts": 1\u201324 primitives that together look like the object, each:
+ "fact": one true, fun physics or material fact about it (under 140 chars),
+ "parts": 1\u201316 primitives that together look like the object (use the fewest that read clearly), each:
    {"shape": "sphere"|"box"|"plate"|"roundbox"|"cylinder"|"cone"|"capsule"|"torus"|"dome"|"lathe"|"tube"|"teapot",
     "size": sphere [rx,ry,rz] radii | box/plate/roundbox [x,y,z] full extents (plate = thin box) | cylinder [rTop,rBottom,height] | cone [radius,height] | capsule [radius,length] | torus [R, tube r, arc degrees] | dome [radius,height] | teapot [size],
-    "radius": for roundbox corner radius or tube radius,
-    "points": for lathe [[r,y],...] profile, for tube [[x,y,z],...] centreline,
-    "pos": [x,y,z] metres, "rot": [x,y,z] degrees (Euler XYZ),
+    "radius": roundbox corner radius or tube radius (only for those),
+    "points": lathe [[r,y],...] profile or tube [[x,y,z],...] centreline (only for those, \u226410 points),
+    "pos": [x,y,z] metres, "rot": [x,y,z] degrees, Euler XYZ (default [0,0,0]),
     "color": "#rrggbb",
-    "material": one of ${JSON.stringify(MATERIAL_NAMES)} ("metal" = ordinary sheet/structural steel or aluminium, "steel" = hardened or armour-thick steel, "iron" = cast iron),
+    "material": default "plastic"; one of ${JSON.stringify(MATERIAL_NAMES)} ("metal" = ordinary sheet/structural steel or aluminium, "steel" = hardened or armour-thick steel, "iron" = cast iron),
     "pattern" (optional): {"type":"stripes"|"bands"|"spots"|"segments","color":"#rrggbb","count":n,"colors":["#..",...]}}
-Use real-world dimensions in metres, y is up, objects sit roughly centred on the origin. Keep the largest dimension under 3 m. Make it recognisable and a bit charming.`;
-}
+Use real-world dimensions in metres, y is up, the object roughly centred on the origin, largest dimension under 3 m. Make it recognisable and a bit charming.`;
+var recipeUser = (what) => `Design: "${String(what).replace(/"/g, "'")}"`;
 function objectKey(name) {
   let s = String(name || "").toLowerCase().normalize("NFKD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim().replace(/^(a|an|the|some|my|one|two|three|several|lots of|a bunch of|a pair of|a giant|giant)\s+/, "");
   const words = s.split(" ");
@@ -41,6 +40,15 @@ function objectKey(name) {
   else if (w.length > 3 && w.endsWith("s") && !/(ss|us|is|ous)$/.test(w)) w = w.slice(0, -1);
   words[words.length - 1] = w;
   return words.join(" ").slice(0, 60);
+}
+var SIZE_WORDS = /^(big|small|little|tiny|huge|large|mini|miniature|medium|massive|enormous|jumbo|regular|normal|standard|old|new|giant)\s+/;
+function looseKey(name) {
+  let k = objectKey(name), prev;
+  do {
+    prev = k;
+    k = k.replace(SIZE_WORDS, "");
+  } while (k !== prev);
+  return k;
 }
 
 // js/dropcodec.js
@@ -292,6 +300,7 @@ var worker_default = {
       const [fab2, head] = await Promise.all([cachedFab(env, ctx), pileHead(env, ctx)]);
       const out = { ...status(fab2, env, now), ...fuelStatus(head, env, now), on: !!env.ANTHROPIC_API_KEY, wire: 2 };
       if (url.searchParams.has("shelf")) out.items = shelfList(fab2);
+      if (fab2.tokens) out.tokens = fab2.tokens;
       return json(out, 200, brief);
     }
     if (path === "/warehouse") return json({ items: shelfList(await cachedFab(env, ctx)) }, 200, brief);
@@ -326,8 +335,10 @@ var worker_default = {
     const k = objectKey(what);
     if (!k) return reply("say what to shred", 400);
     const seen = await cachedFab(env, ctx);
-    if (seen.shelf.some((x) => x.k === k)) {
-      const it = await shelfItem(env, ctx, k);
+    const lk = looseKey(what);
+    const match = seen.shelf.find((x) => x.k === k) || seen.shelf.find((x) => looseKey(x.k) === lk);
+    if (match) {
+      const it = await shelfItem(env, ctx, match.k);
       if (it) return reply({ recipe: it.recipe, shelf: true }, 200, { "x-cache": "shelf" });
     }
     if (!env.ANTHROPIC_API_KEY) return reply("\u201CType anything\u201D isn\u2019t switched on yet: the Worker has no Claude API key. The built-in objects all work.", 501);
@@ -343,7 +354,12 @@ var worker_default = {
     const r = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: { "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-      body: JSON.stringify({ model: env.MODEL || "claude-sonnet-5-5", max_tokens: 3e3, messages: [{ role: "user", content: recipePrompt(what) }] })
+      body: JSON.stringify({
+        model: env.MODEL || "claude-sonnet-5-5",
+        max_tokens: +env.MAX_TOKENS || 2e3,
+        system: [{ type: "text", text: RECIPE_SYSTEM, cache_control: { type: "ephemeral" } }],
+        messages: [{ role: "user", content: recipeUser(what) }]
+      })
     });
     if (!r.ok) return reply("Claude is busy: " + (await r.text()).slice(0, 200), 502);
     const j = await r.json();
@@ -353,13 +369,19 @@ var worker_default = {
     try {
       recipe = JSON.parse(text.slice(a, b + 1));
     } catch (e) {
-      return reply("Claude returned something unparseable", 502);
+      return reply(j.stop_reason === "max_tokens" ? "That design got too elaborate. Try something simpler." : "Claude returned something unparseable", 502);
     }
     const fab = roll(await readFab(env), now);
     fab.dayUsed++;
     fab.hourUsed++;
     if (!fab.shelf.some((x) => x.k === k)) fab.shelf.push({ k, name: recipe.name || what, icon: recipe.icon || "\u2728", at: now, recipe });
     while (fab.shelf.length > SHELF_MAX) fab.shelf.shift();
+    const u = j.usage || {}, t = fab.tokens || (fab.tokens = { n: 0, in: 0, out: 0, cacheRead: 0, cacheWrite: 0 });
+    t.n++;
+    t.in += u.input_tokens || 0;
+    t.out += u.output_tokens || 0;
+    t.cacheRead += u.cache_read_input_tokens || 0;
+    t.cacheWrite += u.cache_creation_input_tokens || 0;
     await writeFab(env, ctx, fab);
     const after = status(fab, env, now);
     return reply({ recipe }, 200, { "x-cache": "miss", "x-pool-left": String(after.poolLeft), "x-day-left": String(after.dayLeft) });
