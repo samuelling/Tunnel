@@ -17,7 +17,7 @@ import { buildOutOfOrder } from './outoforder.js';
 import { SessionPile, renderPileImage } from './sharepile.js';
 import { PileCam } from './pilecam.js';
 import { buildSafetyBoard } from './safetyboard.js';
-import { WORKER_URL } from './settings.js';
+import { WORKER_URL, WORLD_BUILDER_URL } from './settings.js';
 import { Particles } from './particles.js';
 import { Audio } from './audio.js';
 import { generateRecipe, generatorAvailable } from './claude.js';
@@ -35,7 +35,7 @@ const audio = new Audio();
 const bodies = [];
 const byCollider = new Map();
 const pending = [];          // deferred breaks this step
-let simTime = 0, timeScale = 1, bulletUntil = 0, autoBullet = true, smokeOn = false, shake = 0;
+let simTime = 0, timeScale = 1, bulletUntil = 0, autoBullet = true, smokeOn = true, shake = 0;
 let armed = null;            // recipe currently selected in the tray
 let lastRoot = null, camMode = 0;
 const recipes = [...CATALOG];
@@ -877,6 +877,72 @@ function flushInstantly() {
   drops.flushPayload();
 }
 
+// ------------------------------------------------------------------------------- teleport
+function worldBuilderUrl() {
+  let u = ''; try { u = localStorage.getItem('wbLiveUrl') || ''; } catch {}
+  return u || WORLD_BUILDER_URL || 'http://localhost:3000';
+}
+function openWarp() {
+  $('warpUrl').value = worldBuilderUrl();
+  $('warp').hidden = false;
+}
+function warpToWorldBuilder() {
+  let url;
+  try { url = new URL($('warpUrl').value.trim() || worldBuilderUrl(), location.href); }
+  catch { $('warpUrl').focus(); return; }
+  try { localStorage.setItem('wbLiveUrl', url.origin + url.pathname); } catch {}
+  url.searchParams.set('visit', 'shred-pile');
+  flushInstantly();   // whatever is waiting in the Portal Chute goes through ahead of you
+  $('warp').hidden = true;
+  audio.whoosh?.(40);
+  document.body.classList.add('warping');
+  setTimeout(() => {
+    // inside an embedded copy (the Claude-hosted one) a new tab is the only way out
+    if (window.top !== window) { window.open(url.href, '_blank', 'noopener'); document.body.classList.remove('warping'); }
+    else location.href = url.href;
+  }, 850);
+}
+
+// ------------------------------------------------------------------------------- toolbar tips
+// The toolbar is all emoji, so hovering a button (with a mouse) pops up its name and what it does.
+const TOOL_TIPS = {
+  btnCam: ['Camera', 'Cycle through the views (C)'],
+  btnSlow: ['Slow motion', 'Run the world at a crawl'],
+  btnBullet: ['Bullet time', 'Auto slow-mo right before the blades hit'],
+  btnSmoke: ['Smoke tracers', 'Show the airflow down the tube'],
+  btnGust: ['Gust', 'A sudden blast of air'],
+  btnSound: ['Sound', 'Mute or unmute'],
+  btnChaos: ['Chaos', 'Throw 8 random things at once'],
+  btnClear: ['Clear debris', 'Sweep up everything in the tube'],
+  btnShare: ['Share your pile', 'Picture of what you shredded, to text or email'],
+  btnSplit: ['Split view', 'Watch the Shred Pile fill up beside the tube'],
+  btnWarp: ['Teleport', 'Leave the Shred Hole for World Builder'],
+  btnInfo: ['How it works', 'The physics behind the silliness'],
+};
+function setupToolTips() {
+  const tip = document.createElement('div'); tip.id = 'tip'; tip.hidden = true; document.body.appendChild(tip);
+  let showT = 0;
+  const hide = () => { clearTimeout(showT); tip.hidden = true; };
+  for (const b of document.querySelectorAll('#tools button')) {
+    const t = TOOL_TIPS[b.id] || [b.title, ''];
+    b.setAttribute('aria-label', t[0]); b.dataset.title = b.title; b.removeAttribute('title');   // no double tooltip
+    b.addEventListener('pointerenter', (e) => {
+      if (e.pointerType !== 'mouse') return;
+      clearTimeout(showT);
+      showT = setTimeout(() => {
+        tip.innerHTML = `<b>${t[0]}</b>${t[1] ? `<span>${t[1]}</span>` : ''}`;
+        tip.hidden = false;
+        const r = b.getBoundingClientRect(), w = tip.offsetWidth;
+        tip.style.left = Math.max(8, Math.min(innerWidth - w - 8, r.left + r.width / 2 - w / 2)) + 'px';
+        tip.style.top = (r.bottom + 8) + 'px';
+        tip.style.setProperty('--ax', (r.left + r.width / 2 - parseFloat(tip.style.left)) + 'px');
+      }, 120);
+    });
+    b.addEventListener('pointerleave', hide);
+    b.addEventListener('click', hide);
+  }
+}
+
 // ------------------------------------------------------------------------------- split view
 let pileCam = null;
 function mailboxUrl() {
@@ -1080,6 +1146,11 @@ function buildUI() {
   $('btnClear').onclick = () => { for (const b of [...bodies, ...frozen]) removeBody(b, 'dissolve'); particles.clear(); roots.clear(); };
   $('btnInfo').onclick = () => { $('info').hidden = !$('info').hidden; };
   $('btnShare').onclick = openShare;
+  $('btnWarp').onclick = openWarp;
+  $('warpClose').onclick = $('warpStay').onclick = () => { $('warp').hidden = true; };
+  $('warpGo').onclick = warpToWorldBuilder;
+  $('warpUrl').onkeydown = (e) => { if (e.key === 'Enter') warpToWorldBuilder(); };
+  setupToolTips();
   $('hatch').onclick = pullHatch;
   $('plLever').onclick = () => openPayloadHatch('lever');
   document.addEventListener('visibilitychange', () => { if (document.hidden) flushInstantly(); });
@@ -1459,11 +1530,13 @@ async function runMaker() {
   const m = shelfMatch();
   if (m) return grabFromShelf(m);
   $('makeGo').dataset.busy = '1'; $('makeGo').disabled = true;
-  const quips = ['Consulting Claude about the aerodynamics of', 'Estimating the shear strength of', 'Calculating how many pieces make', 'Asking the fan’s lawyer about'];
-  $('makeMsg').textContent = `${quips[(Math.random() * quips.length) | 0]} “${what}”…`;
+  $('makeMsg').textContent = '';
+  const fab = startFab(what);
   try {
     const raw = await generateRecipe(what, recipePrompt(what));
-    const r = addGenerated(raw);
+    const r = sanitizeRecipe(raw);
+    await fab.finish(r.icon);
+    addGenerated(raw);
     $('maker').hidden = true;
     if (quota && claudeGen.poolLeft !== null) { quota.poolLeft = claudeGen.poolLeft; quota.youLeft = Math.min(claudeGen.designsLeft ?? quota.youLeft, quota.poolLeft); renderTickets(); }
     const left = claudeGen.designsLeft;
@@ -1471,9 +1544,67 @@ async function runMaker() {
     else warehouseAt = 0;   // it's on the shelf now
     if (!claudeGen.lastFromShelf && left !== null && left <= 5) toast(`${r.icon} ${r.name} is ready. ${left === 0 ? 'That was your last new design this hour.' : `${left} new design${left === 1 ? '' : 's'} left this hour.`}`);
   } catch (e) {
+    fab.fail();
     $('makeMsg').textContent = e.limit ? '⏳ ' + e.message : 'Claude couldn’t build that one: ' + (e.message || e);
     if (e.limit) refreshQuota();
-  } finally { $('makeGo').dataset.busy = '0'; updateMakeButton(); }
+  } finally { fab.stop(); $('makeGo').dataset.busy = '0'; updateMakeButton(); }
+}
+
+// The Fabricator: something to watch while Claude designs the object (usually 10–40 s).
+// Progress is honest about not knowing: it creeps toward 95% on a ~12 s time constant and
+// only jumps to 100% when the design actually arrives.
+const FAB_STEPS = ['Reading the work order', 'Sketching the shape', 'Choosing materials', 'Weighing it', 'Working out how it breaks', 'Tuning the crunch'];
+const FAB_QUIPS = ['Consulting Claude about the aerodynamics of', 'Estimating the shear strength of', 'Calculating how many pieces make', 'Asking the fan’s lawyer about', 'Looking up the density of', 'Rummaging for parts for', 'Arguing about the colour of', 'Checking the warranty on'];
+const FAB_SHAPES = ['📦', '🔩', '🧱', '⚙️', '🪵', '🧲', '🔧', '🪛', '🧊', '🛢️'];
+function startFab(what) {
+  const el = $('fab'), steps = $('fabSteps'), thing = $('fabThing');
+  el.hidden = false; el.classList.remove('done', 'fail');
+  $('fabWhat').textContent = what.toUpperCase();
+  steps.innerHTML = FAB_STEPS.map(t => `<li>${t}</li>`).join('');
+  $('fabFill').style.width = '2%';
+  document.querySelector('#maker .chips').hidden = true;
+  $('makeIn').disabled = true;
+  const t0 = performance.now(); let qi = (Math.random() * FAB_QUIPS.length) | 0, si = 0, tick = 0;
+  const quip = () => { $('fabQuip').textContent = `${FAB_QUIPS[qi++ % FAB_QUIPS.length]} “${what}”…`; };
+  quip();
+  const timer = setInterval(() => {
+    const t = (performance.now() - t0) / 1000;
+    const p = 0.95 * (1 - Math.exp(-t / 12));
+    $('fabFill').style.width = (2 + p * 98).toFixed(1) + '%';
+    $('fabTime').textContent = t < 60 ? `${t | 0}s` : `${(t / 60) | 0}m ${String((t | 0) % 60).padStart(2, '0')}s`;
+    const on = Math.min(FAB_STEPS.length - 1, Math.floor(p / 0.95 * FAB_STEPS.length));
+    [...steps.children].forEach((li, i) => { li.className = i < on ? 'done' : i === on ? 'on' : ''; });
+    if (++tick % 4 === 0) { thing.classList.remove('wire'); thing.textContent = FAB_SHAPES[si++ % FAB_SHAPES.length]; }
+    if (tick % 13 === 0) quip();
+    if (t > 45 && tick % 13 === 6) $('fabQuip').textContent = 'Still going. Big ideas take a while…';
+  }, 200);
+  thing.classList.add('wire'); thing.textContent = '?';
+  let stopped = false;
+  const stop = () => {
+    if (stopped) return; stopped = true; clearInterval(timer);
+    document.querySelector('#maker .chips').hidden = false;
+    $('makeIn').disabled = false;
+    setTimeout(() => { if (!el.classList.contains('fail')) el.hidden = true; }, 0);
+  };
+  return {
+    stop,
+    finish: (icon) => new Promise(res => {
+      clearInterval(timer);
+      [...steps.children].forEach(li => { li.className = 'done'; });
+      $('fabFill').style.width = '100%';
+      thing.classList.remove('wire'); thing.textContent = icon || '✨';
+      $('fabQuip').textContent = 'Done. Fresh off the line.';
+      el.classList.add('done');
+      setTimeout(res, 750);
+    }),
+    fail: () => {
+      clearInterval(timer);
+      el.classList.add('fail');
+      thing.classList.remove('wire'); thing.textContent = '💥';
+      const on = steps.querySelector('li.on'); if (on) on.className = '';
+      $('fabQuip').textContent = 'The Fabricator jammed.';
+    },
+  };
 }
 
 function addGenerated(raw) {

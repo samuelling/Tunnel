@@ -31,13 +31,14 @@
   <button id="btnCam" title="Cycle camera (C)">🎥<span id="camName">Overview</span></button>
   <button id="btnSlow" title="Slow motion">🐢</button>
   <button id="btnBullet" title="Auto bullet-time before the chop">⏱️</button>
-  <button id="btnSmoke" title="Smoke tracers">💨</button>
+  <button id="btnSmoke" class="on" title="Smoke tracers">💨</button>
   <button id="btnGust" title="Gust">🌬️</button>
   <button id="btnSound" title="Sound">🔊</button>
   <button id="btnChaos" title="Throw 8 random things">🎲</button>
   <button id="btnClear" title="Clear debris">🧹</button>
   <button id="btnShare" title="Share a picture of your shred pile">📸</button>
   <button id="btnSplit" title="Split view: watch the Shred Pile at the far end of the portal">🪟</button>
+  <button id="btnWarp" title="Teleport yourself into World Builder, to the Shred Pile">🌀</button>
   <button id="btnInfo" title="How it works">ⓘ</button>
 </div>
 
@@ -119,6 +120,21 @@
     </div>
     <p id="makeNote" class="note"></p>
     <div class="row"><input id="makeIn" maxlength="60" placeholder="a grand piano, a jellyfish, my old MacBook…" autocomplete="off"><button id="makeGo">Make it</button></div>
+    <div id="fab" class="fab" hidden aria-live="polite">
+      <div class="fabStage">
+        <div class="fabBeam"></div>
+        <div class="fabGrid"></div>
+        <div class="fabThing" id="fabThing">?</div>
+        <div class="fabArm l"></div><div class="fabArm r"></div>
+        <div class="fabSparks"><i></i><i></i><i></i><i></i><i></i><i></i></div>
+      </div>
+      <div class="fabSide">
+        <div class="fabTitle">FABRICATING <b id="fabWhat"></b></div>
+        <ol class="fabSteps" id="fabSteps"></ol>
+        <div class="fabBar"><i id="fabFill"></i></div>
+        <div class="fabFoot"><span id="fabQuip"></span><span id="fabTime">0s</span></div>
+      </div>
+    </div>
     <div id="whouse" class="whouse" hidden>
       <div class="whHead">🏬 THE WAREHOUSE <span id="whCount"></span><span class="free">ALL FREE</span></div>
       <div class="whNote">Everything anyone has fabricated so far. Throwing these costs no tickets.</div>
@@ -126,6 +142,19 @@
     </div>
     <div class="chips"><button>a grand piano</button><button>a stack of pancakes</button><button>a disco ball</button><button>a jellyfish</button><button>a lawn flamingo</button><button>a bag of marbles</button></div>
     <p id="makeMsg" class="msg"></p>
+  </div>
+</div>
+
+<div id="warp" class="modal" hidden>
+  <div class="box warpBox">
+    <button id="warpClose" class="x">✕</button>
+    <div class="warpSwirl"><i></i><i></i><i></i></div>
+    <h2>Leaving the Shred Hole</h2>
+    <p>You're about to step through the vortex portal into <b>World Builder</b>, and land beside the <b>Shred Pile</b>, where everything that goes down this tube ends up.</p>
+    <p class="warnLine">⚠ This leaves the Shred Hole. Anything still waiting in the Portal Chute gets flushed through first; whatever is mid-air in the tube is left behind.</p>
+    <p class="note">World Builder runs wherever Matt is hosting it (on his own computer that's <code>http://localhost:3000</code>).</p>
+    <div class="row"><input id="warpUrl" placeholder="http://localhost:3000" autocomplete="off"></div>
+    <div class="row warpActs"><button id="warpStay" class="ghost">Stay and shred</button><button id="warpGo">🌀 Teleport me</button></div>
   </div>
 </div>
 

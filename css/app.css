@@ -206,20 +206,21 @@ body.split #btnSplit { outline: 2px solid var(--y); }
 #hatch { position: fixed; right: 14px; top: calc(50% + 175px); }
 .lever { display: flex; flex-direction: column; align-items: center; gap: 4px; background: none; border: none; padding: 0; cursor: pointer; z-index: 3; -webkit-tap-highlight-color: transparent; }
 .lever .plate { position: relative; width: 70px; height: 70px; border-radius: 14px; background: repeating-linear-gradient(-45deg, #ffc21a 0 9px, #16161a 9px 18px); box-shadow: 0 6px 18px rgba(0,0,0,0.5), inset 0 0 0 3px rgba(0,0,0,0.6); }
-.lever .slot { position: absolute; left: 50%; top: 12px; bottom: 12px; width: 12px; margin-left: -6px; background: #0b0b0d; border-radius: 6px; box-shadow: inset 0 2px 4px #000; }
-.lever .arm { position: absolute; left: 50%; bottom: 16px; width: 8px; height: 46px; margin-left: -4px; background: linear-gradient(90deg, #8a9097, #e6e9ee 45%, #6c7178); border-radius: 4px; transform-origin: 50% 100%; transform: rotate(-32deg); transition: transform .18s cubic-bezier(.3,1.6,.5,1); }
-.lever .knob { position: absolute; left: 50%; top: -11px; width: 22px; height: 22px; margin-left: -11px; border-radius: 50%; background: radial-gradient(circle at 35% 30%, #ff8a8a, #d61f1f 45%, #7a0b0b); box-shadow: 0 3px 6px rgba(0,0,0,0.5); }
+.lever .slot { position: absolute; left: 50%; top: 8px; bottom: 8px; width: 12px; margin-left: -6px; background: #0b0b0d; border-radius: 6px; box-shadow: inset 0 2px 4px #000; }
+.lever .slot::after { content: ''; position: absolute; left: -5px; right: -5px; top: 50%; height: 8px; margin-top: -4px; border-radius: 3px; background: #34383e; box-shadow: 0 1px 2px #000; }
+/* a slot-machine handle seen from the front: pivots in the middle of the plate and swings down toward you */
+.lever .arm { position: absolute; left: 50%; bottom: 50%; width: 8px; height: 26px; margin-left: -4px; background: linear-gradient(90deg, #8a9097, #e6e9ee 45%, #6c7178); border-radius: 4px; transform-origin: 50% 100%; transform: perspective(120px) rotateX(0deg); transition: transform .22s cubic-bezier(.4,1.4,.6,1); }
+.lever .knob { position: absolute; left: 50%; top: -12px; width: 24px; height: 24px; margin-left: -12px; border-radius: 50%; background: radial-gradient(circle at 35% 30%, #ff8a8a, #d61f1f 45%, #7a0b0b); box-shadow: 0 3px 6px rgba(0,0,0,0.5); }
 .lever .lbl { font: 18px/0.95 var(--disp); color: var(--y); text-align: center; letter-spacing: 0.04em; text-shadow: 0 2px 6px #000; }
-.lever.pulled .arm { transform: rotate(32deg); }
+.lever.pulled .arm { transform: perspective(120px) rotateX(-180deg); }
+.lever.pulled .plate { box-shadow: 0 3px 10px rgba(0,0,0,0.5), inset 0 0 0 3px rgba(0,0,0,0.6); transform: translateY(2px); }
 .lever.idle { opacity: 0.6; }
 .lever.idle .lbl { color: var(--m); }
-.lever.wiggle .arm { animation: wiggle .35s; }
-@keyframes wiggle { 25% { transform: rotate(-20deg); } 50% { transform: rotate(-40deg); } 75% { transform: rotate(-26deg); } }
 body.split #hatch { right: calc(14px + var(--paneW)); }
 @media (max-width: 700px) {
   #hatch { top: auto; bottom: calc(118px + var(--sb) + 258px); right: 10px; }
   .lever .plate { width: 58px; height: 58px; }
-  .lever .arm { height: 38px; bottom: 13px; }
+  .lever .arm { height: 21px; }
   .lever .lbl { font-size: 15px; }
 }
 @media (max-height: 500px) { #hatch { top: auto; bottom: calc(96px + var(--sb)); right: 96px; } }
@@ -273,3 +274,75 @@ body.split #hatch { right: calc(14px + var(--paneW)); }
 .chain.pulled { transform: translateY(16px); }
 .chain.idle { opacity: 0.55; } .chain.idle .lbl { color: var(--m); text-shadow: none; }
 @media (max-width: 700px) { .chain .links { height: 40px; } .chain .handle { height: 32px; } .chain .lbl { font-size: 18px; } }
+
+/* lever wiggle: a little downward tug instead of a sideways shake */
+@keyframes tug { 0%,100% { transform: perspective(120px) rotateX(0deg); } 40% { transform: perspective(120px) rotateX(-40deg); } }
+.lever.wiggle .arm { animation: tug .35s; }
+
+/* ---------------- Fabricator: something to watch while Claude designs the object */
+.fab { display: flex; gap: 14px; align-items: stretch; margin: 10px 0 4px; padding: 12px; border-radius: 14px; background: #0b0e12; border: 1px solid #2a3340; box-shadow: inset 0 0 30px rgba(255,194,26,0.06); }
+.fabStage { position: relative; flex: 0 0 110px; height: 110px; border-radius: 10px; overflow: hidden; background: radial-gradient(circle at 50% 80%, #1d2a38, #080a0d 70%); }
+.fabGrid { position: absolute; inset: 0; background-image: linear-gradient(#ffc21a14 1px, transparent 1px), linear-gradient(90deg, #ffc21a14 1px, transparent 1px); background-size: 11px 11px; animation: fabGrid 2.4s linear infinite; }
+@keyframes fabGrid { to { background-position: 0 11px, 11px 0; } }
+.fabBeam { position: absolute; left: 0; right: 0; height: 2px; background: #6ff; box-shadow: 0 0 10px 3px #6ff8; animation: fabScan 1.6s ease-in-out infinite alternate; z-index: 2; }
+@keyframes fabScan { from { top: 14%; } to { top: 82%; } }
+.fabThing { position: absolute; left: 50%; top: 50%; font-size: 44px; line-height: 1; transform: translate(-50%, -50%); filter: drop-shadow(0 0 8px #6ff8); animation: fabSpin 2.2s ease-in-out infinite; z-index: 1; }
+@keyframes fabSpin { 0% { transform: translate(-50%,-50%) rotateY(0) scale(.9); } 50% { transform: translate(-50%,-55%) rotateY(180deg) scale(1.05); } 100% { transform: translate(-50%,-50%) rotateY(360deg) scale(.9); } }
+.fabThing.wire { color: #6ff; font: 800 46px var(--disp); opacity: .75; }
+.fabArm { position: absolute; top: 6px; width: 6px; height: 46px; background: linear-gradient(90deg, #8a9097, #e6e9ee 45%, #6c7178); border-radius: 3px; transform-origin: 50% 0; z-index: 3; }
+.fabArm::after { content: ''; position: absolute; bottom: -5px; left: -3px; width: 12px; height: 8px; border-radius: 2px; background: #ffc21a; box-shadow: 0 0 8px #ffc21a; }
+.fabArm.l { left: 18px; animation: fabArmL 0.9s ease-in-out infinite alternate; }
+.fabArm.r { right: 18px; animation: fabArmR 1.1s ease-in-out infinite alternate; }
+@keyframes fabArmL { from { transform: rotate(-12deg); } to { transform: rotate(-38deg); } }
+@keyframes fabArmR { from { transform: rotate(12deg); } to { transform: rotate(40deg); } }
+.fabSparks i { position: absolute; left: 50%; top: 55%; width: 3px; height: 3px; border-radius: 50%; background: #ffe38a; box-shadow: 0 0 6px #ffc21a; opacity: 0; animation: fabSpark 0.9s ease-out infinite; z-index: 3; }
+.fabSparks i:nth-child(1) { --dx: -30px; --dy: -24px; animation-delay: 0s; }
+.fabSparks i:nth-child(2) { --dx: 28px; --dy: -30px; animation-delay: .15s; }
+.fabSparks i:nth-child(3) { --dx: -22px; --dy: 20px; animation-delay: .3s; }
+.fabSparks i:nth-child(4) { --dx: 34px; --dy: 14px; animation-delay: .45s; }
+.fabSparks i:nth-child(5) { --dx: -38px; --dy: -2px; animation-delay: .6s; }
+.fabSparks i:nth-child(6) { --dx: 14px; --dy: 30px; animation-delay: .75s; }
+@keyframes fabSpark { 0% { opacity: 1; transform: translate(0,0); } 100% { opacity: 0; transform: translate(var(--dx), var(--dy)); } }
+.fabSide { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.fabTitle { font: 18px var(--disp); color: var(--y); letter-spacing: .04em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fabTitle b { color: var(--t); font-weight: normal; }
+.fabSteps { list-style: none; margin: 0; padding: 0; font-size: 12.5px; color: var(--m); display: flex; flex-direction: column; gap: 2px; }
+.fabSteps li::before { content: '○'; display: inline-block; width: 18px; color: #4a5562; }
+.fabSteps li.on { color: var(--t); }
+.fabSteps li.on::before { content: '◐'; color: var(--y); animation: fabTick .6s steps(4) infinite; }
+.fabSteps li.done { color: #8fd18f; }
+.fabSteps li.done::before { content: '✓'; color: #8fd18f; animation: none; }
+@keyframes fabTick { 0% { content: '◐'; } 25% { content: '◓'; } 50% { content: '◑'; } 75% { content: '◒'; } }
+.fabBar { height: 8px; border-radius: 4px; background: #1a2028; overflow: hidden; margin-top: auto; }
+.fabBar i { display: block; height: 100%; width: 0; border-radius: 4px; background: repeating-linear-gradient(-45deg, #ffc21a 0 8px, #e0a800 8px 16px); background-size: 22px 22px; animation: fabStripe .6s linear infinite; transition: width .4s ease-out; }
+@keyframes fabStripe { to { background-position: 22px 0; } }
+.fabFoot { display: flex; justify-content: space-between; gap: 8px; font-size: 11.5px; color: var(--m); }
+.fabFoot span:first-child { font-style: italic; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fab.done .fabBeam, .fab.done .fabArm, .fab.done .fabSparks { display: none; }
+.fab.done .fabThing { animation: fabPop .5s cubic-bezier(.3,1.8,.5,1); filter: drop-shadow(0 0 12px #8fd18f); }
+@keyframes fabPop { from { transform: translate(-50%,-50%) scale(.3); } to { transform: translate(-50%,-50%) scale(1); } }
+.fab.fail .fabBeam, .fab.fail .fabArm, .fab.fail .fabSparks, .fab.fail .fabGrid { animation-play-state: paused; }
+.fab.fail .fabThing { filter: grayscale(1); animation: none; }
+@media (max-width: 420px) { .fabStage { flex-basis: 84px; height: 96px; } .fabThing { font-size: 36px; } }
+
+/* ---------------- Teleport to World Builder */
+.warpBox { overflow: hidden; }
+.warpSwirl { position: relative; height: 92px; margin: -4px 0 6px; }
+.warpSwirl i { position: absolute; left: 50%; top: 50%; border-radius: 50%; border: 3px solid transparent; border-top-color: #6ff; border-right-color: #b06bff; animation: warpSpin 1.4s linear infinite; }
+.warpSwirl i:nth-child(1) { width: 84px; height: 84px; margin: -42px; }
+.warpSwirl i:nth-child(2) { width: 58px; height: 58px; margin: -29px; animation-duration: 1s; animation-direction: reverse; border-top-color: #ffc21a; }
+.warpSwirl i:nth-child(3) { width: 32px; height: 32px; margin: -16px; animation-duration: .7s; background: radial-gradient(circle, #fff, #6ff 40%, transparent 70%); }
+@keyframes warpSpin { to { transform: rotate(360deg); } }
+.warnLine { background: #2a1a08; border: 1px solid #6b4a12; color: #ffd27a; border-radius: 10px; padding: 8px 10px; font-size: 13px; }
+.warpActs { justify-content: flex-end; }
+.warpActs .ghost { background: none; border: 1px solid var(--line); color: var(--m); }
+body.warping::after { content: ''; position: fixed; inset: 0; z-index: 50; pointer-events: none; background: radial-gradient(circle at 50% 50%, #fff 0, #6ff 10%, #3a1a6b 35%, #000 70%); animation: warpOut .9s ease-in forwards; }
+@keyframes warpOut { from { opacity: 0; transform: scale(.2) rotate(0); } to { opacity: 1; transform: scale(3) rotate(200deg); } }
+
+/* ---------------- toolbar hover tips */
+#tip { position: fixed; z-index: 40; pointer-events: none; background: #0b0e12f2; border: 1px solid var(--y); border-radius: 9px; padding: 6px 10px; max-width: 240px; display: flex; flex-direction: column; gap: 1px; box-shadow: 0 6px 18px rgba(0,0,0,.5); animation: tipIn .12s ease-out; }
+#tip[hidden] { display: none; }
+#tip b { font: 15px var(--disp); color: var(--y); letter-spacing: .04em; }
+#tip span { font-size: 12px; color: var(--t); }
+#tip::before { content: ''; position: absolute; top: -6px; left: var(--ax, 50%); margin-left: -6px; border: 6px solid transparent; border-top: 0; border-bottom-color: var(--y); }
+@keyframes tipIn { from { opacity: 0; transform: translateY(-3px); } }

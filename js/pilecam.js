@@ -17,7 +17,7 @@ const REPOSE = Math.tan(38 * DEG);
 const PORTAL_ALT = 150, PORTAL_R = 28;
 const GRAV = 9.81 * 2.2;
 const POLL = 6, POLL_MAX = 60;   // the pile naps: checks back off to once a minute when nothing arrives
-const SCALE = 18;                // pieces arrive big, but not instant-mountain big
+const SCALE = 10;                // pieces arrive big, but not instant-mountain big
 const COMPACT_AT = 32;           // heap height (m) that brings the compactor
 const BALE_SQUASH = 0.22;        // a bale keeps ~22% of the heap's loose volume
 
