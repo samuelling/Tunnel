@@ -160,10 +160,10 @@ async function writeFab(env, ctx, fab) {
   cacheLite(ctx, fab);
 }
 async function cachedFab(env, ctx) {
-  const hit = await caches.default.match(new Request(CACHE + "fab-lite"));
-  if (hit) {
+  const hit2 = await caches.default.match(new Request(CACHE + "fab-lite"));
+  if (hit2) {
     try {
-      return readFabText(await hit.text());
+      return readFabText(await hit2.text());
     } catch (e) {
     }
   }
@@ -173,10 +173,10 @@ async function cachedFab(env, ctx) {
 }
 async function shelfItem(env, ctx, k) {
   const key = new Request(CACHE + "item/" + encodeURIComponent(k));
-  const hit = await caches.default.match(key);
-  if (hit) {
+  const hit2 = await caches.default.match(key);
+  if (hit2) {
     try {
-      return await hit.json();
+      return await hit2.json();
     } catch (e) {
     }
   }
@@ -234,10 +234,10 @@ function cachePile(ctx, text) {
   ]));
 }
 async function pileHead(env, ctx) {
-  const hit = await caches.default.match(new Request(HEAD_KEY));
-  if (hit) {
+  const hit2 = await caches.default.match(new Request(HEAD_KEY));
+  if (hit2) {
     try {
-      return headOf(await hit.text());
+      return headOf(await hit2.text());
     } catch (e) {
     }
   }
@@ -253,8 +253,8 @@ async function storedPile(env, ctx) {
   return text;
 }
 async function cachedPile(env, ctx) {
-  const hit = await caches.default.match(new Request(PILE_KEY));
-  if (hit) return hit.text();
+  const hit2 = await caches.default.match(new Request(PILE_KEY));
+  if (hit2) return hit2.text();
   const text = await storedPile(env, ctx);
   cachePile(ctx, text);
   return text;
@@ -295,6 +295,8 @@ var worker_default = {
     if (!env.DROPS && path !== "/") return json({ error: "no KV namespace bound as DROPS" }, 501);
     const now = Date.now();
     if (path === "/drops") return drops(req, env, url, ok, origin, ctx);
+    if (path === "/hit") return hit(req, env, ok, now);
+    if (path === "/stats") return stats(req, env, ctx, url, now);
     const brief = { "cache-control": "public, max-age=10" };
     if (path === "/quota") {
       const [fab2, head] = await Promise.all([cachedFab(env, ctx), pileHead(env, ctx)]);
@@ -466,6 +468,156 @@ async function drops(req, env, url, ok, origin, ctx) {
   cachePile(ctx, out);
   return new Response(JSON.stringify({ id: d.id, at: d.at, fuelLeft: Math.max(0, cap - head.fuelUsed) }), { status: 201, headers });
 }
+var COUNTS = ["started", "thrown", "shredded", "partial", "survived", "jams", "repairs", "flushes", "designs", "grabs", "shares", "splits", "warps"];
+var KEEP_DAYS = 400;
+var hdrs = (extra = {}) => ({ "Access-Control-Allow-Origin": "*", "content-type": "application/json", "cache-control": "no-store", ...extra });
+async function hit(req, env, ok, now) {
+  if (req.method !== "POST") return new Response("{}", { status: 405, headers: hdrs() });
+  if (!ok || !env.STATS) return new Response(null, { status: 204, headers: hdrs() });
+  let b;
+  try {
+    const t = await req.text();
+    if (t.length > 8e3) throw 0;
+    b = JSON.parse(t);
+  } catch (e) {
+    return new Response(null, { status: 400, headers: hdrs() });
+  }
+  const id = /^[A-Za-z0-9-]{8,64}$/;
+  if (!b || !id.test(b.sid || "") || !id.test(b.vid || "")) return new Response(null, { status: 400, headers: hdrs() });
+  const n = (v, max) => Math.max(0, Math.min(max, Math.round(+v || 0)));
+  const c = {};
+  for (const k of COUNTS) c[k] = n(b.c?.[k], 5e3);
+  const objs = Object.entries(b.objs || {}).slice(0, 40).map(([k, v]) => [String(k).slice(0, 40), n(v, 5e3)]).filter(([, v]) => v > 0);
+  const row = {
+    sid: b.sid,
+    vid: b.vid,
+    isNew: !!b.isNew,
+    day: etParts(now).date,
+    now,
+    device: ["phone", "tablet", "desktop"].includes(b.device) ? b.device : "other",
+    country: String(req.cf?.country || "").slice(0, 2),
+    ref: String(b.ref || "").replace(/[^a-z0-9.-]/gi, "").slice(0, 60),
+    where: String(b.where || "").replace(/[^a-z0-9.-]/gi, "").slice(0, 40),
+    secs: n(b.secs, 86400),
+    c,
+    objs
+  };
+  const stub = env.STATS.get(env.STATS.idFromName("shred-hole"));
+  await stub.fetch("https://stats/hit", { method: "POST", body: JSON.stringify(row) });
+  return new Response(null, { status: 204, headers: hdrs() });
+}
+async function stats(req, env, ctx, url, now) {
+  const days = Math.max(1, Math.min(KEEP_DAYS, +url.searchParams.get("days") || 60));
+  const key = new Request(CACHE + "stats/" + days);
+  const hit0 = await caches.default.match(key);
+  if (hit0) return new Response(hit0.body, { headers: hdrs({ "cache-control": "public, max-age=60", "x-cache": "hit" }) });
+  const since = new Date(now - days * 864e5);
+  const fromDay = etParts(+since).date;
+  let play = { daily: [], devices: [], countries: [], refs: [], objects: [], where: [], totals: {} };
+  if (env.STATS) {
+    const r = await env.STATS.get(env.STATS.idFromName("shred-hole")).fetch("https://stats/report?from=" + fromDay);
+    if (r.ok) play = await r.json();
+  }
+  const fab = await cachedFab(env, ctx);
+  const designsByDay = {};
+  for (const it of fab.shelf) {
+    if (!it.at || it.at < +since) continue;
+    const d = etParts(it.at).date;
+    designsByDay[d] = (designsByDay[d] || 0) + 1;
+  }
+  const pile = await cachedPile(env, ctx), head = headOf(pile);
+  const dropsByDay = {};
+  for (const line of pile.split("\n").slice(1)) {
+    const at = +line.slice(0, line.indexOf("	"));
+    if (!at || at < +since) continue;
+    const d = etParts(at).date;
+    dropsByDay[d] = (dropsByDay[d] || 0) + 1;
+  }
+  const out = {
+    generated: now,
+    days,
+    from: fromDay,
+    tz: "America/New_York",
+    play,
+    designs: Object.entries(designsByDay).map(([day, n]) => ({ day, n })).sort((a, b) => a.day < b.day ? -1 : 1),
+    deliveries: Object.entries(dropsByDay).map(([day, n]) => ({ day, n })).sort((a, b) => a.day < b.day ? -1 : 1),
+    shop: { ...status(fab, env, now), shelfItems: fab.shelf.length, tokens: fab.tokens || null, model: env.MODEL || "claude-sonnet-5-5" },
+    portal: { ...fuelStatus(head, env, now), mailboxDrops: Math.max(0, pile.split("\n").length - 1), mailboxBytes: pile.length }
+  };
+  const text = JSON.stringify(out);
+  ctx.waitUntil(caches.default.put(key, new Response(text, { headers: { "cache-control": "max-age=60" } })));
+  return new Response(text, { headers: hdrs({ "cache-control": "public, max-age=60" }) });
+}
+var Stats = class {
+  constructor(state) {
+    this.sql = state.storage.sql;
+    this.sql.exec(`CREATE TABLE IF NOT EXISTS visits (
+      sid TEXT PRIMARY KEY, vid TEXT, is_new INTEGER, day TEXT, first INTEGER, last INTEGER,
+      device TEXT, country TEXT, ref TEXT, place TEXT, secs INTEGER,
+      ${COUNTS.map((k) => k + " INTEGER DEFAULT 0").join(", ")})`);
+    this.sql.exec("CREATE INDEX IF NOT EXISTS visits_day ON visits(day)");
+    this.sql.exec("CREATE TABLE IF NOT EXISTS thrown (sid TEXT, day TEXT, name TEXT, n INTEGER, PRIMARY KEY (sid, name))");
+    this.sql.exec("CREATE INDEX IF NOT EXISTS thrown_day ON thrown(day)");
+  }
+  async fetch(req) {
+    const url = new URL(req.url);
+    if (url.pathname === "/hit") {
+      const r = await req.json();
+      this.sql.exec(
+        `INSERT INTO visits (sid, vid, is_new, day, first, last, device, country, ref, place, secs, ${COUNTS.join(", ")})
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ${COUNTS.map(() => "?").join(", ")})
+        ON CONFLICT(sid) DO UPDATE SET last = excluded.last, secs = MAX(visits.secs, excluded.secs),
+        ${COUNTS.map((k) => `${k} = MAX(visits.${k}, excluded.${k})`).join(", ")}`,
+        r.sid,
+        r.vid,
+        r.isNew ? 1 : 0,
+        r.day,
+        r.now,
+        r.now,
+        r.device,
+        r.country,
+        r.ref,
+        r.where,
+        r.secs,
+        ...COUNTS.map((k) => r.c[k])
+      );
+      for (const [name, n] of r.objs) {
+        this.sql.exec("INSERT INTO thrown (sid, day, name, n) VALUES (?, ?, ?, ?) ON CONFLICT(sid, name) DO UPDATE SET n = MAX(thrown.n, excluded.n)", r.sid, r.day, name, n);
+      }
+      if (Math.random() < 0.01) {
+        const cut = new Date(Date.now() - KEEP_DAYS * 864e5).toISOString().slice(0, 10);
+        this.sql.exec("DELETE FROM visits WHERE day < ?", cut);
+        this.sql.exec("DELETE FROM thrown WHERE day < ?", cut);
+      }
+      return new Response(null, { status: 204 });
+    }
+    if (url.pathname === "/report") {
+      const from = url.searchParams.get("from") || "0000";
+      const all = (q, ...a) => [...this.sql.exec(q, ...a)];
+      const sums = COUNTS.map((k) => `SUM(${k}) AS ${k}`).join(", ");
+      const daily = all(`SELECT day, COUNT(*) AS visits, COUNT(DISTINCT vid) AS visitors, SUM(is_new) AS newVisitors,
+          SUM(CASE WHEN started > 0 THEN 1 ELSE 0 END) AS played, ROUND(AVG(secs)) AS avgSecs, SUM(secs) AS secs, ${sums}
+        FROM visits WHERE day >= ? GROUP BY day ORDER BY day`, from);
+      const totals = all(`SELECT COUNT(*) AS visits, COUNT(DISTINCT vid) AS visitors, SUM(is_new) AS newVisitors,
+          SUM(CASE WHEN started > 0 THEN 1 ELSE 0 END) AS played, ROUND(AVG(secs)) AS avgSecs, SUM(secs) AS secs, ${sums}
+        FROM visits WHERE day >= ?`, from)[0] || {};
+      const returning = all(`SELECT COUNT(*) AS n FROM (SELECT vid FROM visits WHERE day >= ? GROUP BY vid HAVING COUNT(DISTINCT day) > 1)`, from)[0]?.n || 0;
+      const by = (col) => all(`SELECT ${col} AS k, COUNT(*) AS visits, COUNT(DISTINCT vid) AS visitors FROM visits WHERE day >= ? GROUP BY ${col} ORDER BY visits DESC LIMIT 15`, from);
+      return Response.json({
+        daily,
+        totals: { ...totals, returningVisitors: returning },
+        devices: by("device"),
+        countries: by("country"),
+        refs: by("ref"),
+        where: by("place"),
+        objects: all("SELECT name, SUM(n) AS n, COUNT(DISTINCT sid) AS visits FROM thrown WHERE day >= ? GROUP BY name ORDER BY n DESC LIMIT 25", from),
+        hours: all(`SELECT CAST(strftime('%H', first / 1000, 'unixepoch') AS INTEGER) AS hourUTC, COUNT(*) AS visits FROM visits WHERE day >= ? GROUP BY hourUTC ORDER BY hourUTC`, from)
+      });
+    }
+    return new Response("not found", { status: 404 });
+  }
+};
 export {
+  Stats,
   worker_default as default
 };

@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Shred Hole · usage</title>
+<meta name="robots" content="noindex">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Anton&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap');
+  :root {
+    color-scheme: dark;
+    --surface-0: #0b0d11; --surface-1: #14161a; --line: rgba(255,255,255,.09); --grid: rgba(255,255,255,.07);
+    --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #8d8c85;
+    --series-1: #3987e5; --series-2: #d95926; --series-3: #199e70;
+    --accent: #ffc21a;
+    --disp: 'Anton', Impact, sans-serif; --sans: 'Inter', system-ui, sans-serif; --mono: 'JetBrains Mono', ui-monospace, monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--surface-0); color: var(--text-primary); font: 14px/1.45 var(--sans); }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 22px 18px 60px; }
+  header { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px 20px; margin-bottom: 18px; }
+  h1 { font: 44px/0.95 var(--disp); color: var(--accent); margin: 0; letter-spacing: .01em; }
+  h1 small { display: block; font: 700 12px var(--sans); color: var(--text-muted); letter-spacing: .14em; text-transform: uppercase; margin-top: 6px; }
+  .grow { flex: 1; }
+  .range { display: flex; gap: 4px; background: var(--surface-1); border: 1px solid var(--line); border-radius: 10px; padding: 3px; }
+  .range button { background: none; border: 0; color: var(--text-secondary); font: 600 13px var(--sans); padding: 6px 12px; border-radius: 7px; cursor: pointer; }
+  .range button[aria-pressed="true"] { background: rgba(255,255,255,.1); color: var(--text-primary); }
+  .stamp { color: var(--text-muted); font: 500 12px var(--mono); }
+  a { color: var(--text-secondary); }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(165px, 1fr)); gap: 10px; margin-bottom: 14px; }
+  .tile { background: var(--surface-1); border: 1px solid var(--line); border-radius: 14px; padding: 13px 14px 12px; }
+  .tile .k { font: 700 11px var(--sans); color: var(--text-muted); letter-spacing: .1em; text-transform: uppercase; }
+  .tile .v { font: 34px/1.1 var(--disp); margin-top: 4px; letter-spacing: .01em; }
+  .tile .s { color: var(--text-secondary); font-size: 12px; margin-top: 2px; }
+  .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 14px; margin-bottom: 14px; }
+  .card { background: var(--surface-1); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px 12px; min-width: 0; }
+  .card h2 { font: 800 13px var(--sans); letter-spacing: .08em; text-transform: uppercase; margin: 0 0 2px; color: var(--text-primary); }
+  .card .sub { color: var(--text-muted); font-size: 12px; margin-bottom: 8px; }
+  .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--text-secondary); margin: 2px 0 6px; }
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+  .chart { position: relative; }
+  .chart svg { display: block; width: 100%; overflow: visible; }
+  .axis text { fill: var(--text-muted); font: 500 10.5px var(--mono); }
+  .gridline { stroke: var(--grid); }
+  .baseline { stroke: rgba(255,255,255,.22); }
+  .tip { position: absolute; pointer-events: none; background: #0b0d11f2; border: 1px solid rgba(255,255,255,.18); border-radius: 9px; padding: 7px 10px; font-size: 12px; white-space: nowrap; transform: translate(-50%, calc(-100% - 10px)); z-index: 5; box-shadow: 0 8px 20px rgba(0,0,0,.45); }
+  .tip b { font: 700 11px var(--mono); color: var(--text-secondary); display: block; margin-bottom: 3px; }
+  .tip .row { display: flex; gap: 8px; align-items: center; color: var(--text-primary); }
+  .tip .row i { width: 8px; height: 8px; border-radius: 2px; }
+  .bars { display: flex; flex-direction: column; gap: 7px; }
+  .bar { display: grid; grid-template-columns: minmax(90px, 34%) 1fr auto; gap: 10px; align-items: center; font-size: 13px; }
+  .bar .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary); }
+  .bar .tr { height: 12px; background: rgba(255,255,255,.05); border-radius: 0 4px 4px 0; overflow: hidden; }
+  .bar .fl { height: 100%; background: var(--series-1); border-radius: 0 4px 4px 0; min-width: 2px; }
+  .bar .n { font: 600 12px var(--mono); color: var(--text-primary); min-width: 34px; text-align: right; }
+  .empty { color: var(--text-muted); font-size: 13px; padding: 18px 0; }
+  .facts { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; font-size: 13px; }
+  .facts dt { color: var(--text-muted); }
+  .facts dd { margin: 0; font: 600 13px var(--mono); }
+  details { margin-top: 14px; background: var(--surface-1); border: 1px solid var(--line); border-radius: 14px; padding: 10px 16px; }
+  summary { cursor: pointer; font: 700 13px var(--sans); color: var(--text-secondary); }
+  table { width: 100%; border-collapse: collapse; margin-top: 10px; font: 500 12px var(--mono); }
+  th, td { text-align: right; padding: 5px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th:first-child, td:first-child { text-align: left; }
+  th { color: var(--text-muted); font-weight: 700; }
+  .tablewrap { overflow-x: auto; }
+  .note { color: var(--text-muted); font-size: 12px; margin-top: 18px; max-width: 760px; }
+  .err { background: #2a1010; border: 1px solid #6b2020; color: #ffb4b4; border-radius: 12px; padding: 12px 14px; margin-bottom: 14px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>SHRED HOLE<small>Usage · visits, play, designs and deliveries</small></h1>
+    <span class="grow"></span>
+    <div class="range" role="group" aria-label="Period">
+      <button data-days="7">7 days</button><button data-days="30" aria-pressed="true">30 days</button><button data-days="90">90 days</button><button data-days="365">1 year</button>
+    </div>
+    <span class="stamp" id="stamp">loading…</span>
+  </header>
+  <div id="err" class="err" hidden></div>
+
+  <section class="tiles" id="tiles"></section>
+
+  <section class="grid2">
+    <div class="card"><h2>Visits per day</h2><div class="sub">every page open, and the distinct visitors behind them</div>
+      <div class="legend"><span><i style="background:var(--series-1)"></i>Visits</span><span><i style="background:var(--series-2)"></i>Visitors</span></div>
+      <div class="chart" id="chVisits"></div></div>
+    <div class="card"><h2>Objects thrown per day</h2><div class="sub">everything dropped, flicked or thrown into the tube</div>
+      <div class="chart" id="chThrown"></div></div>
+  </section>
+  <section class="grid2">
+    <div class="card"><h2>New designs per day</h2><div class="sub">objects Claude designed for the Warehouse (each costs tokens)</div>
+      <div class="chart" id="chDesigns"></div></div>
+    <div class="card"><h2>Deliveries to World Builder per day</h2><div class="sub">payloads through the portal still in the mailbox (it keeps the last 300)</div>
+      <div class="chart" id="chDrops"></div></div>
+  </section>
+  <section class="grid2">
+    <div class="card"><h2>Most thrown</h2><div class="sub">objects, by times thrown</div><div class="bars" id="objects"></div></div>
+    <div class="card"><h2>How it went</h2><div class="sub">verdicts, and the fan</div><div class="bars" id="outcomes"></div></div>
+  </section>
+  <section class="grid2">
+    <div class="card"><h2>Devices</h2><div class="sub">visits by kind of device</div><div class="bars" id="devices"></div></div>
+    <div class="card"><h2>Countries</h2><div class="sub">visits, by Cloudflare's guess</div><div class="bars" id="countries"></div></div>
+  </section>
+  <section class="grid2">
+    <div class="card"><h2>Came from</h2><div class="sub">referring sites (direct visits aren't listed)</div><div class="bars" id="refs"></div></div>
+    <div class="card"><h2>The Fabricator and the portal</h2><div class="sub">right now</div><dl class="facts" id="facts"></dl></div>
+  </section>
+
+  <details id="tableBox"><summary>Daily numbers as a table</summary><div class="tablewrap"><table id="table"></table></div></details>
+
+  <p class="note">Counts are anonymous: a random visitor id kept in each browser, a random id per visit, device kind, country, the referring site and play counts. No names, IP addresses or anything typed. Browsers sending Do Not Track or Global Privacy Control aren't counted, and neither is the Claude-hosted copy (it can't reach other sites). Days are Eastern time. Visit counting started on 3 Nov 2026; designs and deliveries go back further. Numbers refresh every minute. <a href="./">Back to the Shred Hole</a></p>
+</div>
+
+<script>
+const WORKER = 'https://tunnel-claude.samuelling.workers.dev';
+const $ = (id) => document.getElementById(id);
+const fmt = (n) => n == null || isNaN(n) ? '–' : n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e4 ? (n / 1e3).toFixed(1) + 'k' : Math.round(n).toLocaleString();
+const fmtSecs = (s) => !s ? '–' : s < 60 ? Math.round(s) + 's' : s < 3600 ? `${Math.floor(s / 60)}m ${String(Math.round(s % 60)).padStart(2, '0')}s` : `${(s / 3600).toFixed(1)}h`;
+const pct = (a, b) => b ? Math.round(100 * a / b) + '%' : '–';
+const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+const NS = 'http://www.w3.org/2000/svg';
+const svgEl = (tag, attrs) => { const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); return e; };
+let days = 30, data = null;
+
+// every day in the range, so quiet days show as zero
+function dayList(n, from) {
+  const out = [], [y, m, d] = from.split('-').map(Number);
+  for (let i = 0; i < n + 1; i++) { const t = new Date(Date.UTC(y, m - 1, d + i)); out.push(t.toISOString().slice(0, 10)); }
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date());
+  return out.filter(x => x <= today);
+}
+const shortDay = (d) => { const [, m, dd] = d.split('-'); return `${+m}/${+dd}`; };
+const longDay = (d) => new Date(d + 'T12:00:00Z').toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' });
+
+// ---- a time chart: bars for one series, lines for two (one shared axis)
+function timeChart(box, days, series, { kind = 'bar' } = {}) {
+  box.replaceChildren();
+  const W = Math.max(280, box.clientWidth), H = 190, m = { l: 34, r: 8, t: 10, b: 24 };
+  const iw = W - m.l - m.r, ih = H - m.t - m.b;
+  const max = Math.max(1, ...series.flatMap(s => s.values));
+  const step = max <= 4 ? 1 : Math.ceil(max / 4 / (10 ** Math.floor(Math.log10(max / 4)))) * 10 ** Math.floor(Math.log10(max / 4));
+  const top = Math.ceil(max / step) * step;
+  const y = (v) => m.t + ih - (v / top) * ih;
+  const bw = iw / days.length, x = (i) => m.l + bw * (i + 0.5);
+  const svg = svgEl('svg', { viewBox: `0 0 ${W} ${H}`, width: '100%', height: H, role: 'img', 'aria-label': series.map(s => s.name).join(' and ') + ' per day' });
+  const ax = svgEl('g', { class: 'axis' });
+  for (let v = 0; v <= top; v += step) {
+    svg.appendChild(svgEl('line', { class: v ? 'gridline' : 'baseline', x1: m.l, x2: W - m.r, y1: y(v), y2: y(v) }));
+    const t = svgEl('text', { x: m.l - 6, y: y(v) + 3.5, 'text-anchor': 'end' }); t.textContent = fmt(v); ax.appendChild(t);
+  }
+  const every = Math.max(1, Math.ceil(days.length / Math.max(2, Math.floor(iw / 46))));
+  days.forEach((d, i) => { if (i % every && i !== days.length - 1) return; const t = svgEl('text', { x: x(i), y: H - 6, 'text-anchor': 'middle' }); t.textContent = shortDay(d); ax.appendChild(t); });
+  svg.appendChild(ax);
+  if (kind === 'bar') {
+    const s = series[0], w = Math.max(2, Math.min(26, bw - 2));
+    s.values.forEach((v, i) => { if (!v) return; const h = Math.max(1.5, ih * v / top), r = Math.min(4, w / 2, h);
+      const x0 = x(i) - w / 2, y0 = m.t + ih - h;
+      svg.appendChild(svgEl('path', { d: `M${x0},${m.t + ih}V${y0 + r}Q${x0},${y0} ${x0 + r},${y0}H${x0 + w - r}Q${x0 + w},${y0} ${x0 + w},${y0 + r}V${m.t + ih}Z`, fill: s.color })); });
+  } else {
+    for (const s of series) {
+      const d = s.values.map((v, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join('');
+      svg.appendChild(svgEl('path', { d, fill: 'none', stroke: s.color, 'stroke-width': 2, 'stroke-linejoin': 'round', 'stroke-linecap': 'round' }));
+      if (days.length <= 45) s.values.forEach((v, i) => svg.appendChild(svgEl('circle', { cx: x(i), cy: y(v), r: 3, fill: s.color, stroke: 'var(--surface-1)', 'stroke-width': 2 })));
+    }
+  }
+  // hover: a crosshair and the day's values
+  const cross = svgEl('line', { x1: 0, x2: 0, y1: m.t, y2: m.t + ih, stroke: 'rgba(255,255,255,.3)', 'stroke-dasharray': '3 3', visibility: 'hidden' });
+  svg.appendChild(cross);
+  const hit = svgEl('rect', { x: m.l, y: m.t, width: iw, height: ih + m.b, fill: 'transparent' });
+  svg.appendChild(hit);
+  const tip = el('div', 'tip'); tip.hidden = true;
+  const show = (ev) => {
+    const r = svg.getBoundingClientRect(), px = (ev.clientX - r.left) * (W / r.width);
+    const i = Math.max(0, Math.min(days.length - 1, Math.floor((px - m.l) / bw)));
+    cross.setAttribute('x1', x(i)); cross.setAttribute('x2', x(i)); cross.setAttribute('visibility', 'visible');
+    tip.replaceChildren(el('b', null, longDay(days[i])), ...series.map(s => { const row = el('div', 'row'); const sw = el('i'); sw.style.background = s.color; row.append(sw, `${s.name}: ${fmt(s.values[i])}`); return row; }));
+    tip.hidden = false;
+    const left = x(i) * r.width / W, maxY = Math.max(...series.map(s => s.values[i]));
+    tip.style.left = Math.max(70, Math.min(r.width - 70, left)) + 'px';
+    tip.style.top = (y(maxY) * r.height / H) + 'px';
+  };
+  hit.addEventListener('pointermove', show); hit.addEventListener('pointerdown', show);
+  hit.addEventListener('pointerleave', () => { tip.hidden = true; cross.setAttribute('visibility', 'hidden'); });
+  box.append(svg, tip);
+}
+
+function barList(box, rows, { label = r => r.k, value = r => r.visits, color = 'var(--series-1)', empty = 'Nothing yet.' } = {}) {
+  box.replaceChildren();
+  rows = rows.filter(r => value(r) > 0);
+  if (!rows.length) { box.appendChild(el('div', 'empty', empty)); return; }
+  const max = Math.max(...rows.map(value));
+  for (const r of rows) {
+    const row = el('div', 'bar'), tr = el('div', 'tr'), fl = el('div', 'fl');
+    fl.style.width = (100 * value(r) / max) + '%'; fl.style.background = color; tr.appendChild(fl);
+    const nm = el('span', 'nm', label(r)); nm.title = label(r);
+    row.append(nm, tr, el('span', 'n', fmt(value(r)))); box.appendChild(row);
+  }
+}
+
+const COUNTRY = new Intl.DisplayNames(undefined, { type: 'region' });
+const countryName = (k) => { try { return k && k !== 'XX' && k !== 'T1' ? COUNTRY.of(k) : 'Unknown'; } catch (e) { return k || 'Unknown'; } };
+
+function render() {
+  if (!data) return;
+  const p = data.play, t = p.totals || {}, days = dayList(data.days, data.from);
+  const byDay = Object.fromEntries((p.daily || []).map(r => [r.day, r]));
+  const col = (k) => days.map(d => +(byDay[d]?.[k] || 0));
+  const dz = (list) => { const m = Object.fromEntries(list.map(r => [r.day, r.n])); return days.map(d => m[d] || 0); };
+  // tiles
+  const verdicts = (t.shredded || 0) + (t.partial || 0) + (t.survived || 0);
+  const tok = data.shop.tokens;
+  const tiles = [
+    ['Visits', fmt(t.visits), `${fmt(t.visitors)} visitors · ${fmt(t.newVisitors)} new`],
+    ['Came back', fmt(t.returningVisitors), 'visitors seen on more than one day'],
+    ['Played', pct(t.played, t.visits), `${fmt(t.played)} visits pressed start`],
+    ['Time per visit', fmtSecs(t.avgSecs), `${fmtSecs(t.secs)} in all, tab in view`],
+    ['Thrown', fmt(t.thrown), t.played ? `${(t.thrown / t.played).toFixed(1)} per playing visit` : 'objects into the tube'],
+    ['Blended', pct(t.shredded, verdicts), `${fmt(t.shredded)} shredded · ${fmt(t.survived)} survived`],
+    ['Fan jams', fmt(t.jams), `${fmt(t.repairs)} repairs`],
+    ['Flushes', fmt(t.flushes), `${fmt(t.splits)} split views · ${fmt(t.warps)} teleports`],
+    ['New designs', fmt(data.designs.reduce((s, r) => s + r.n, 0)), `${fmt(t.grabs)} free grabs from the shelf`],
+    ['Tokens (all time)', tok ? fmt(tok.in + tok.out + tok.cacheRead + tok.cacheWrite) : '–', tok ? `${fmt(tok.out)} output over ${tok.n} designs` : 'tally started 3 Nov'],
+  ];
+  $('tiles').replaceChildren(...tiles.map(([k, v, s]) => { const d = el('div', 'tile'); d.append(el('div', 'k', k), el('div', 'v', v), el('div', 's', s)); return d; }));
+  // charts
+  timeChart($('chVisits'), days, [{ name: 'Visits', values: col('visits'), color: 'var(--series-1)' }, { name: 'Visitors', values: col('visitors'), color: 'var(--series-2)' }], { kind: 'line' });
+  timeChart($('chThrown'), days, [{ name: 'Thrown', values: col('thrown'), color: 'var(--series-1)' }]);
+  timeChart($('chDesigns'), days, [{ name: 'New designs', values: dz(data.designs), color: 'var(--series-3)' }]);
+  timeChart($('chDrops'), days, [{ name: 'Deliveries', values: dz(data.deliveries), color: 'var(--series-1)' }]);
+  // lists
+  barList($('objects'), (p.objects || []).slice(0, 12), { label: r => r.name, value: r => r.n, empty: 'Nothing thrown yet in this period.' });
+  barList($('outcomes'), [
+    { k: 'IT BLENDS!', v: t.shredded }, { k: 'Partially blended', v: t.partial }, { k: 'It did not blend', v: t.survived },
+    { k: 'Jammed the fan', v: t.jams }, { k: 'Portal flushes', v: t.flushes }, { k: 'Pictures shared', v: t.shares },
+  ], { value: r => r.v || 0, color: 'var(--series-3)' });
+  barList($('devices'), p.devices || []);
+  barList($('countries'), (p.countries || []).slice(0, 10), { label: r => countryName(r.k) });
+  barList($('refs'), (p.refs || []).filter(r => r.k).slice(0, 10), { empty: 'No referring sites yet: visits so far came direct.' });
+  // facts
+  const s = data.shop, po = data.portal, facts = [
+    ['Fabricator', s.open ? `open · ${s.poolLeft} of ${s.pool} tickets left this hour` : `closed (${s.excuse})`],
+    ['Today', `${s.dayCap - s.dayLeft} of ${s.dayCap} daily designs used`],
+    ['Warehouse', `${s.shelfItems} objects on the shelf`],
+    ['Model', s.model],
+    ['Tokens', tok ? `${fmt(tok.in)} in · ${fmt(tok.out)} out · ${fmt(tok.cacheRead)} cache read · ${fmt(tok.cacheWrite)} cache write` : '–'],
+    ['Thinking', tok && tok.thinking != null ? fmt(tok.thinking) + ' tokens' : '–'],
+    ['Portal fuel', `${po.fuelLeft} of ${po.fuelCap} deliveries left today`],
+    ['Mailbox', `${po.mailboxDrops} drops · ${(po.mailboxBytes / 1e6).toFixed(2)} MB`],
+  ];
+  $('facts').replaceChildren(...facts.flatMap(([k, v]) => [el('dt', null, k), el('dd', null, v)]));
+  // table
+  const cols = [['day', 'Day'], ['visits', 'Visits'], ['visitors', 'Visitors'], ['newVisitors', 'New'], ['played', 'Played'], ['thrown', 'Thrown'], ['shredded', 'Blended'], ['survived', 'Survived'], ['jams', 'Jams'], ['flushes', 'Flushes'], ['designs', 'Designs'], ['drops', 'Deliveries']];
+  const dd = dz(data.designs), dl = dz(data.deliveries);
+  const tb = $('table'); tb.replaceChildren();
+  const hr = el('tr'); cols.forEach(([, h]) => hr.appendChild(el('th', null, h))); tb.appendChild(hr);
+  days.slice().reverse().forEach((d) => { const i = days.indexOf(d), r = byDay[d] || {}, tr = el('tr');
+    cols.forEach(([k]) => tr.appendChild(el('td', null, k === 'day' ? d : k === 'designs' ? fmt(dd[i]) : k === 'drops' ? fmt(dl[i]) : fmt(+(r[k] || 0))))); tb.appendChild(tr); });
+  $('stamp').textContent = 'updated ' + new Date(data.generated).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+}
+
+async function load() {
+  $('stamp').textContent = 'loading…';
+  try {
+    const r = await fetch(`${WORKER}/stats?days=${days}`);
+    if (!r.ok) throw new Error(`the Worker answered ${r.status}`);
+    data = await r.json(); $('err').hidden = true; render();
+  } catch (e) { $('err').hidden = false; $('err').textContent = `Couldn't load the numbers: ${e.message}.`; $('stamp').textContent = ''; }
+}
+document.querySelectorAll('.range button').forEach(b => b.addEventListener('click', () => {
+  days = +b.dataset.days; document.querySelectorAll('.range button').forEach(x => x.setAttribute('aria-pressed', String(x === b))); load();
+}));
+let rt = 0; addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(render, 120); });
+setInterval(() => { if (!document.hidden) load(); }, 60000);
+load();
+</script>
+</body>
+</html>

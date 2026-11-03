@@ -18,6 +18,7 @@ import { SessionPile, renderPileImage } from './sharepile.js';
 import { PileCam } from './pilecam.js';
 import { buildSafetyBoard } from './safetyboard.js';
 import { WORKER_URL, WORLD_BUILDER_URL } from './settings.js';
+import { stats } from './stats.js';
 import { Particles } from './particles.js';
 import { Audio } from './audio.js';
 import { generateRecipe, generatorAvailable } from './claude.js';
@@ -199,6 +200,7 @@ function newRoot(recipe) {
 }
 
 function spawnRecipe(recipe, pos, vel) {
+  if (recipe.id !== 'blade-shard') stats.threw(recipe.name);
   const n = recipe.count || 1;
   const root = newRoot(recipe);
   for (let k = 0; k < n; k++) {
@@ -505,6 +507,7 @@ function checkStall(dt) {
 
 function jamFan(reason, rec, k) {
   if (jam) return;
+  stats.count('jams');
   jam = { reason, rec, k, name: rec ? rec.recipe.name : 'something' };
   rotor.locked = true;
   const thr = $('throttle');
@@ -569,6 +572,7 @@ function repairStep(text, ms, tick) {
 }
 
 async function repairFan() {
+  stats.count('repairs');
   if (repairing) return;
   repairing = true;
   const thr = $('throttle');
@@ -662,6 +666,7 @@ function verdict(root) {
   parts.push(`hit ${fmtE(root.maxE)}`);
   if (root.rpmDrop > 1) parts.push(`fan −${Math.round(root.rpmDrop)} rpm`);
   root.verdictHead = head; root.verdictQuip = quip;
+  stats.count(head === 'IT BLENDS!' ? 'shredded' : head === 'PARTIALLY BLENDED' ? 'partial' : 'survived');
   logItem(root, head);
   showVerdict(r, head, quip, parts.join(' · '));
   if (!r.unbreakable) addTally(root, score, Math.max(n, root.pieces));
@@ -699,6 +704,7 @@ function absorb(rec) {
 // ------------------------------------------------------------------------------- share the pile
 let shareURL = null;
 async function openShare() {
+  stats.count('shares');
   const box = $('shareBox');
   box.hidden = false;
   $('shareImg').hidden = true; $('shareActs').hidden = true;
@@ -808,6 +814,7 @@ function openPayloadHatch(why) {
   if (!payloadStat.n && why === 'lever') { audio.hit('thunk', 3000); toast('The Portal Chute is empty. Shred something first.'); return; }
   audio.start(); audio.hit('clang', 1.5e4); setTimeout(() => audio.whoosh(40), 250);
   hatchState = 'opening'; hatchT = 0;
+  stats.count('flushes');
   drops.hold = true;
   // flip mode: get Pile Cam going now (so the payload is caught as it's sent), slide over once the doors are open
   if (flipping() && !onPile && $('paneSrc').value !== 'live') { pileCam?.start(); setTimeout(() => showPile(true), 1300); }
@@ -890,6 +897,7 @@ function openWarp() {
   $('warp').hidden = false;
 }
 function warpToWorldBuilder() {
+  stats.count('warps');
   let url;
   try { url = new URL($('warpUrl').value.trim() || worldBuilderUrl(), location.href); }
   catch { $('warpUrl').focus(); return; }
@@ -963,6 +971,7 @@ function setSplit(on) {
   $('toPile').hidden = !flip;
   if (!flip) showPile(false, true);
   if (on) {
+    stats.count('splits');
     // get the pile drawing (at its final size) before it slides in, so it arrives already moving
     setPaneSource($('paneSrc').value);
     if (flip && !onPile) pileCam?.stop();
@@ -1222,7 +1231,7 @@ function buildUI() {
   $('shareClose').onclick = () => { $('shareBox').hidden = true; };
   $('infoClose').onclick = () => { $('info').hidden = true; };
   $('start').onclick = () => {
-    $('start').hidden = true; audio.start(); $('hatch').hidden = false; $('payload').hidden = false;
+    $('start').hidden = true; audio.start(); stats.start(); $('hatch').hidden = false; $('payload').hidden = false;
     if (!armed) { const c = recipes.find(r => r.id === 'couch'); if (c) arm(c); }   // a couch is ready to go: pull the lever
     $('hatch').classList.toggle('idle', !armed);
     if (rotor.setpoint === 0) { thr.value = 70; setThr(); }
@@ -1579,6 +1588,7 @@ async function grabFromShelf(w) {
   try {
     const raw = await claudeGen.fetchShelfItem(w.k);
     const r = addGenerated(raw);
+    stats.count('grabs');
     $('maker').hidden = true;
     toast(`🏬 ${r.icon} ${r.name}, fresh off the Warehouse shelf (free). Throw it.`);
   } catch (e) { $('makeMsg').textContent = e.message || String(e); }
@@ -1618,7 +1628,7 @@ async function runMaker() {
     if (quota && claudeGen.poolLeft !== null) { quota.poolLeft = claudeGen.poolLeft; quota.youLeft = Math.min(claudeGen.designsLeft ?? quota.youLeft, quota.poolLeft); renderTickets(); }
     const left = claudeGen.designsLeft;
     if (claudeGen.lastFromShelf) toast(`🏬 ${r.icon} ${r.name} was already in the Warehouse: free!`);
-    else warehouseAt = 0;   // it's on the shelf now
+    else { warehouseAt = 0; stats.count('designs'); }   // it's on the shelf now
     if (!claudeGen.lastFromShelf && left !== null && left <= 5) toast(`${r.icon} ${r.name} is ready. ${left === 0 ? 'That was your last new design this hour.' : `${left} new design${left === 1 ? '' : 's'} left this hour.`}`);
   } catch (e) {
     fab.fail();

@@ -27,3 +27,12 @@ simple = { limit = 6, period = 60 }
 [[kv_namespaces]]
 binding = "DROPS"
 id = "1911f17202244afeb8cc1726ae34e3f7"
+
+# usage stats (js/stats.js → POST /hit; stats.html ← GET /stats): a SQLite-backed Durable Object
+[[durable_objects.bindings]]
+name = "STATS"
+class_name = "Stats"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Stats"]
