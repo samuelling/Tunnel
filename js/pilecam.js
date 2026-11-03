@@ -5,6 +5,7 @@
 // layout from its id, so the heap matches Matt's pile piece for piece, minus his planet around it.
 // New drops fall out of the sky portal as they arrive; your own drops are shown straight away.
 // Alternatively the pane can show a live World Builder (iframe) when one is reachable.
+import { inflateDrop } from './dropcodec.js';
 import * as THREE from 'three';
 import { ConvexGeometry } from 'three/addons/geometries/ConvexGeometry.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
@@ -16,7 +17,8 @@ const CELLS = 64, CELL = (PILE_R * 2) / CELLS;
 const REPOSE = Math.tan(38 * DEG);
 const PORTAL_ALT = 150, PORTAL_R = 28;
 const GRAV = 9.81 * 2.2;
-const POLL = 6, POLL_MAX = 60;   // the pile naps: checks back off to once a minute when nothing arrives
+const POLL = 8, POLL_MAX = 120;  // the pile naps: checks back off to every two minutes when nothing arrives
+                                 // (your own drops are shown straight away, without asking the mailbox)
 const SCALE = 10;                // pieces arrive big, but not instant-mountain big
 const COMPACT_AT = 32;           // heap height (m) that brings the compactor
 const BALE_SQUASH = 0.22;        // a bale keeps ~22% of the heap's loose volume
@@ -369,12 +371,14 @@ export class PileCam {
   }
 
   // ---- arrivals
-  arrive(d) {
+  // local: a drop this page just sent. It's shown now; it doesn't move the "since" mark (other
+  // people's drops from just before it must still be fetched) or wake the polling up.
+  arrive(d, { local = false } = {}) {
+    inflateDrop(d);
     const key = d.id || `${d.at}:${d.object?.name}`;
     if (this.seen.has(key) || !Array.isArray(d.pieces)) return;
     this.seen.add(key);
-    this.lastAt = Math.max(this.lastAt, d.at || 0);
-    this.setPace(POLL);
+    if (!local) { this.lastAt = Math.max(this.lastAt, d.at || 0); this.setPace(POLL); }
     this.note(d); this.logHeap(d); this.drawBoard();
     this.uniforms.uPulse.value = 1.5;
     const rng = mulberry32(hashString(d.id || key));
@@ -449,10 +453,10 @@ export class PileCam {
     if (this.busy || !this.mailbox) return;
     this.busy = true;
     try {
-      const r = await fetch(`${this.mailbox}?since=${this.first ? 0 : this.lastAt}`, { cache: 'no-store' });
+      const r = await fetch(`${this.mailbox}?since=${this.first ? 0 : this.lastAt}`, { cache: 'no-store' });   // a plain GET: no CORS preflight
       if (r.ok) {
         const j = await r.json();
-        const got = (Array.isArray(j.drops) ? j.drops : []).sort((a, b) => a.at - b.at);
+        const got = (Array.isArray(j.drops) ? j.drops : []).map(inflateDrop).sort((a, b) => a.at - b.at);
         let fresh = 0;
         for (const d of got) {
           const key = d.id || `${d.at}:${d.object?.name}`;

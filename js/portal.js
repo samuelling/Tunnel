@@ -1,3 +1,5 @@
+// On the wire drops travel as Debris Drop v2 (js/dropcodec.js: hull points as base64 bytes,
+// about 4× smaller); in the page they stay in the v1 shape below.
 // The far side of the portal: debris that falls in is packed into a "Debris Drop" (v1) and
 // posted to World Builder's mailbox(es). Format (all lengths in metres, colours #rrggbb):
 // {
@@ -12,8 +14,9 @@
 //   particles: { count, colors }
 // }
 import { WORKER_URL, DROP_URLS } from './settings.js';
+import { thinPoints, slimDrop, WIRE_POINTS } from './dropcodec.js';
 
-const MAX_PIECES = 120, MAX_POINTS = 40;
+const MAX_PIECES = 120, MAX_POINTS = WIRE_POINTS;
 const MAX_PAYLOAD_PIECES = 400;   // a hatch payload: several objects in one delivery
 
 export function dropTargets() {
@@ -32,11 +35,13 @@ const r3 = (v) => Math.round(v * 1000) / 1000;
 
 // points: Vector3[] in the piece's own frame → compact flat array (≤ MAX_POINTS points)
 export function packPoints(points) {
-  const step = Math.max(1, Math.ceil(points.length / MAX_POINTS));
-  const out = [];
-  for (let i = 0; i < points.length; i += step) { const p = points[i]; out.push(r3(p.x), r3(p.y), r3(p.z)); }
-  return out;
+  const flat = [];
+  for (const p of points) flat.push(r3(p.x), r3(p.y), r3(p.z));
+  return thinPoints(flat, MAX_POINTS);
 }
+
+const isRelay = (url) => !!WORKER_URL && url.startsWith(WORKER_URL.replace(/\/$/, ''));
+const fuelUntil = () => { try { return +localStorage.getItem('shredNoFuelUntil') || 0; } catch (e) { return 0; } };
 
 export class DropCollector {
   constructor({ onSent, onParked, onFail, onJudge, onNoFuel }) {
@@ -47,6 +52,7 @@ export class DropCollector {
     this.sentPieces = (() => { try { return +localStorage.getItem('shredSent') || 0; } catch (e) { return 0; } })();
     this.last = null;
     this.hold = false;      // payload hatch closed: finished drops wait in the outbox
+    this.slim = false;      // set when the relay reports wire: 2 (it stores slim drops either way)
     this.outbox = [];
     setTimeout(() => this.resendParked(), 4000);
     setInterval(() => { if (this.parkedCount()) this.resendParked(); }, 10 * 60000);
@@ -104,6 +110,7 @@ export class DropCollector {
   }
 
   resendParked() {
+    if (fuelUntil() > Date.now() && dropTargets().every(isRelay)) return;   // still out of fuel: leave them be
     let q = [];
     try { q = JSON.parse(localStorage.getItem('shredQueue') || '[]'); localStorage.removeItem('shredQueue'); this._parked = 0; } catch (e) { return; }
     if (!dropTargets().length) { for (const d of q.reverse()) this.park(d); return; }
@@ -134,11 +141,21 @@ export class DropCollector {
     this.sentPieces += n;
     try { localStorage.setItem('shredSent', String(this.sentPieces)); } catch (e) { /* ignore */ }
     if (!targets.length) { this.park(drop); this.onParked?.(drop); return; }
+    // the portal said it's out of fuel: don't knock again until it has refuelled
+    const dry = fuelUntil() - Date.now();
+    if (dry > 0 && targets.every(isRelay)) { this.park(drop); this.onNoFuel?.(drop, dry); return; }
     let ok = false, noFuel = null;
+    // slim (v2) only once the relay has said it understands it; an older relay gets v1
+    const wire = JSON.stringify(this.slim ? slimDrop(drop) : drop);
     await Promise.all(targets.map(async (url) => {
       try {
-        const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(drop) });
-        if (res.status === 503 && res.headers.get('x-portal') === 'out-of-fuel') { try { noFuel = (await res.json()).refuelIn || 0; } catch (e) { noFuel = 0; } return; }
+        // text/plain keeps it a "simple" request: no CORS preflight, so one request instead of two
+        const res = await fetch(url, { method: 'POST', headers: { 'content-type': isRelay(url) ? 'text/plain' : 'application/json' }, body: wire });
+        if (res.status === 503 && res.headers.get('x-portal') === 'out-of-fuel') {
+          try { noFuel = (await res.json()).refuelIn || 0; } catch (e) { noFuel = 0; }
+          try { localStorage.setItem('shredNoFuelUntil', String(Date.now() + Math.max(noFuel, 60000))); } catch (e) { /* ignore */ }
+          return;
+        }
         if (res.ok) {
           ok = true;
           // the relay assigns the drop's id (which seeds its place on the pile); keep it
@@ -173,7 +190,7 @@ export class DropCollector {
 export function mergeDrops(list) {
   const total = list.reduce((s, d) => s + d.pieces.length, 0);
   const budget = Math.min(MAX_PAYLOAD_PIECES, total);
-  const pts = total > 200 ? 24 : MAX_POINTS;
+  const pts = total > 200 ? 12 : MAX_POINTS;
   const pieces = [];
   for (const d of list) {
     const share = Math.max(Math.min(8, d.pieces.length), Math.round(budget * d.pieces.length / total));

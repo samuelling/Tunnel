@@ -71,7 +71,7 @@ async function boot() {
   drops = new DropCollector({
     onJudge: (root) => { verdict(root); root.done = true; },
     onNoFuel: (d, refuel) => { const h = Math.max(1, Math.round(refuel / 3.6e6)); toast(`⛽ The portal is out of fuel. ${d.object.icon} ${d.object.name} is being held in Lost & Found (it refuels in about ${h} h).`); renderPayload(); },
-    onSent: (d) => { showTally(); toast(`🌀 ${d.object.icon} ${d.object.name}: ${d.pieces.length} pieces delivered to World Builder`); if (pileCam && pileCam.running && d.id) pileCam.arrive(d); },
+    onSent: (d) => { showTally(); toast(`🌀 ${d.object.icon} ${d.object.name}: ${d.pieces.length} pieces delivered to World Builder`); if (pileCam && pileCam.running && d.id) pileCam.arrive(d, { local: true }); },
     onParked: (d) => (showTally(), toast(`🌀 ${d.object.icon} ${d.object.name} went through the portal (World Builder link not set up yet)`)),
     onFail: (d) => toast(`🌀 ${d.object.name} went through, but World Builder didn't answer. Kept it for later.`),
   });
@@ -512,9 +512,10 @@ function jamFan(reason, rec, k) {
   thr.value = 0; thr.oninput(); thr.disabled = true;
   audio.hit('clang', 8e5); audio.hit('thunk', 5e5); shake = 1;
   setTimeout(() => { sign.show(); audio.hit('clang', 3e4); }, 450);
+  const knewJam = quota ? Date.now() - (quota.lastJam || 0) < 10 * 60000 : false;   // the board already says "0 days"
   if (quota) quota.lastJam = Date.now();
   safety?.update(quota, { jammed: true });
-  try { const u = mailboxUrl().replace(/\/drops$/, ''); if (u) fetch(u + '/jam', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ by: jam.name }) }).catch(() => {}); } catch (e) { /* offline */ }
+  if (!knewJam) try { const u = mailboxUrl().replace(/\/drops$/, ''); if (u) fetch(u + '/jam', { method: 'POST', headers: { 'content-type': 'text/plain' }, body: JSON.stringify({ by: jam.name }) }).catch(() => {}); } catch (e) { /* offline */ }
   const root = rec && rec.root;
   if (root && rec.recipe.id !== 'blade-shard') {
     const r = root.recipe;
@@ -1080,6 +1081,7 @@ function loop(now) {
   }
   controls.update();
   sign.update(fdt, camera);
+  safety?.tick(now / 1000);
   const imb = imbalance();                      // a bent blade throws the rotor out of balance
   if (imb > 0.02 && !rotor.locked) shake = Math.max(shake, Math.min(0.9, imb * 0.8 * Math.min(1, Math.abs(rotor.omega) / 25)));
   if (shake > 0.001) {
@@ -1119,7 +1121,10 @@ function buildUI() {
   make.onclick = openMaker;
   tray.appendChild(make);
   for (const r of recipes) addTrayItem(r);
-  refreshQuota(); setInterval(refreshQuota, 60000);
+  // the status board: every minute while the Fabricator is open, every 5 min otherwise, never in a hidden tab
+  refreshQuota();
+  setInterval(() => { if (!document.hidden && (!$('maker').hidden || performance.now() - quotaAsked > 5 * 60000)) refreshQuota(); }, 60000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && performance.now() - quotaAsked > 5 * 60000) refreshQuota(); });
   setInterval(() => { if (!$('maker').hidden) renderTickets(); }, 1000);
   renderThumbs();
 
@@ -1435,10 +1440,13 @@ function renderThumbs() {
 // ------------------------------------------------------------------------------- Claude maker
 // ---- shred tickets: one shared hourly pool of new Claude designs (see worker/worker.js)
 let quota = null, quotaAt = 0, quotaAsked = 0;
-async function refreshQuota() {
+async function refreshQuota({ shelf = false } = {}) {
   quotaAsked = performance.now();
-  const q = await claudeGen.fetchQuota();
+  const q = await claudeGen.fetchQuota({ shelf });
   if (q) { quota = q; quotaAt = performance.now(); }
+  if (q && q.wire >= 2 && drops) drops.slim = true;
+  if (q && Array.isArray(q.items)) { warehouse = q.items; warehouseAt = performance.now(); renderWarehouse(); }
+  else if (shelf) loadWarehouse();   // an older Worker doesn't bundle the shelf with the board
   safety?.update(quota, { jammed: !!jam });
   renderTickets();
 }
@@ -1512,8 +1520,9 @@ async function grabFromShelf(w) {
 
 async function openMaker() {
   $('maker').hidden = false;
-  refreshQuota();
-  loadWarehouse();
+  // one request for the ticket board and the Warehouse shelf together
+  if (performance.now() - warehouseAt < 60000 && warehouse.length) { renderWarehouse(); if (performance.now() - quotaAsked > 15000) refreshQuota(); }
+  else { renderWarehouse(); refreshQuota({ shelf: true }); }
   $('makeMsg').textContent = '';
   const ok = await generatorAvailable();
   $('makeNote').innerHTML = ok

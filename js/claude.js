@@ -56,11 +56,11 @@ function spendTicket() {
 const base = () => workerUrl().replace(/\/$/, '');
 
 // the public status board (Worker only; inside Claude each viewer uses their own account)
-export async function fetchQuota() {
+export async function fetchQuota({ shelf = false } = {}) {
   if (await sampleNs()) return null;
   if (!workerUrl()) return null;
   try {
-    const r = await fetch(base() + '/quota', { cache: 'no-store' });
+    const r = await fetch(base() + '/quota' + (shelf ? '?shelf' : ''));   // the Worker lets the browser reuse this for 10 s
     if (!r.ok) return null;
     const q = await r.json();
     if (q.perPerson) perPerson = q.perPerson;
@@ -71,7 +71,7 @@ export async function fetchQuota() {
 // the Warehouse: everything anyone has fabricated, free to throw
 export async function fetchWarehouse() {
   if (!workerUrl()) return [];
-  try { const r = await fetch(base() + '/warehouse', { cache: 'no-store' }); return r.ok ? (await r.json()).items || [] : []; }
+  try { const r = await fetch(base() + '/warehouse'); return r.ok ? (await r.json()).items || [] : []; }
   catch (e) { return []; }
 }
 export async function fetchShelfItem(k) {
@@ -95,7 +95,7 @@ export async function generateRecipe(what, prompt, { onShelf = false } = {}) {
     const mins = Math.max(1, 60 - new Date().getMinutes());
     const e = new Error(`You've used all ${perPerson} of your tickets this hour. More in about ${mins} min. Everything in the Warehouse is free.`); e.limit = true; throw e;
   }
-  const r = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ object: what }) });
+  const r = await fetch(url, { method: 'POST', headers: { 'content-type': 'text/plain' }, body: JSON.stringify({ object: what }) });   // simple request: no preflight
   const body = await r.text();
   if (r.status === 429) { const e = new Error(body.slice(0, 220)); e.limit = true; e.closed = r.headers.get('x-shop') === 'closed'; throw e; }
   if (!r.ok) throw new Error(body.slice(0, 160) || r.statusText);

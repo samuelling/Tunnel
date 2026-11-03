@@ -63,8 +63,18 @@ There are two ways the page can reach Claude:
 - **The Warehouse**: everything ever fabricated sits on a public shelf (`GET /warehouse`), free to throw. Names are matched loosely (`objectKey()` in `js/prompt.js`): "a lava lamp", "Lava Lamps" and "the LAVA LAMP" are one object.
 - **The Portal Chute**: debris collects in a tray above the portal (resting pieces are frozen into static bodies, so it costs the simulation little). pull the **FLUSH!** chain (or F) and it all goes as one delivery: one request and one write instead of one per object. It opens itself when full (400 pieces), after two quiet minutes, or when you leave the page.
 - **Portal fuel**: a daily budget of deliveries (`FUEL_PER_DAY`, 600, under Cloudflare's 1,000 free writes). When it runs out, deliveries wait in **Lost & Found** (localStorage) and go out after it refuels at 00:00 UTC.
-- **The pile naps**: Pile Cam and World Builder back off from checking every 6 s to once a minute when nothing arrives, and stop while the tab is hidden. The Worker serves readers a shared 10 s copy.
-- **The safety board** by the portal: DAYS SINCE THE FAN JAMMED (shared by everyone, `POST /jam`), portal fuel, and whether the Fabricator is open.
+- **The pile naps**: Pile Cam and World Builder back off from checking every 8 s to every 2 minutes when nothing arrives, and stop while the tab is hidden. Your own deliveries appear in Pile Cam straight away, without asking the mailbox.
+- **The safety board** by the portal: DAYS SINCE THE FAN JAMMED (shared by everyone, `POST /jam`), portal fuel, and whether the Fabricator is open. It refreshes every 5 minutes (every minute while the Fabricator dialog is open) and never in a hidden tab. In December it wears Christmas lights; during Hanukkah they turn blue (`?holiday=christmas|hanukkah|none` to preview).
+
+### Keeping the Worker cheap
+
+Every request is one Worker run, so the page and the Worker are built to make few of them and to make each one light:
+
+- **Slim drops (Debris Drop v2, `js/dropcodec.js`)**: hull points travel as base64 bytes scaled to each piece, at most 16 points per piece. A drop is about a quarter of its old size (the live mailbox went from 6.0 MB to 1.7 MB). The Worker converts older drops when it stores them, and readers call `inflateDrop()` to get the usual `p` arrays back.
+- **The mailbox is one drop per line** behind a one-line header (`{"v":2,"fuelDay","fuelUsed","last"}`). A poll with nothing new is answered from a ~100-byte cached header, without touching the drops; new drops are cut out of the text without being parsed.
+- **No CORS preflights**: the page POSTs as `text/plain`, so a POST is one request, not two. Any real preflight is cached for a day.
+- **Fewer reads**: the Fabricator dialog gets the ticket board and the Warehouse in one request (`/quota?shelf`), and the browser may reuse it for 10 s. Warehouse recipes are cached for a day, and the Worker caches the shelf without its recipes. A jam that the board already shows (within 10 minutes) isn't reported again.
+- **Out of fuel means quiet**: after a 503, the page holds deliveries locally until the refuel time instead of retrying, and the Worker refuses them from its cached header without reading the mailbox.
 
 ### Deploying the Worker
 

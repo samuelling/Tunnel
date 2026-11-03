@@ -1,6 +1,82 @@
 // The Shred Hole's daily safety board, on two posts beside the portal:
 // DAYS SINCE THE FAN JAMMED (shared by everyone), PORTAL FUEL, and whether the Fabricator is open.
+// In December a string of Christmas lights is draped over it; during Hanukkah they all turn blue.
+// (Preview any time with ?holiday=christmas, ?holiday=hanukkah or ?holiday=none.)
 import * as THREE from 'three';
+
+// ---- which holiday is it? Hanukkah runs from the evening before 25 Kislev for eight nights;
+// the Hebrew date comes from the browser's own calendar support, with a table as a fallback.
+const HANUKKAH_25_KISLEV = { 2026: '12-05', 2027: '12-25', 2028: '12-13', 2029: '12-02', 2030: '12-21', 2031: '12-10', 2032: '11-28', 2033: '12-17', 2034: '12-07', 2035: '12-26' };
+function kislev25(year) {
+  try {
+    const f = new Intl.DateTimeFormat('en-u-ca-hebrew', { month: 'long', day: 'numeric', timeZone: 'UTC' });
+    for (let t = Date.UTC(year, 10, 15); t <= Date.UTC(year, 11, 31); t += 864e5) {
+      const p = Object.fromEntries(f.formatToParts(new Date(t)).map(x => [x.type, x.value]));
+      if (/^Kislev$/i.test(p.month) && p.day === '25') return new Date(t);
+    }
+  } catch (e) { /* no Hebrew calendar here */ }
+  const md = HANUKKAH_25_KISLEV[year];
+  return md ? new Date(`${year}-${md}T00:00:00Z`) : null;
+}
+export function holidayOn(now = new Date()) {
+  try { const q = new URLSearchParams(location.search).get('holiday'); if (q) return /^han|^chan/i.test(q) ? 'hanukkah' : /^(christ|xmas|dec)/i.test(q) ? 'christmas' : null; } catch (e) { /* not a page */ }
+  const day = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
+  for (const y of [now.getFullYear(), now.getFullYear() - 1]) {
+    const k = kislev25(y);
+    if (k && day >= +k - 864e5 && day <= +k + 7 * 864e5) return 'hanukkah';
+  }
+  return now.getMonth() === 11 ? 'christmas' : null;
+}
+
+const XMAS = ['#ff2a2a', '#22e04a', '#2a6bff', '#ffc21a', '#ff7a1a', '#d84cff'];
+const BLUES = ['#1e5bff', '#5aa8ff', '#2f7dff'];
+
+// a string of C9 bulbs swagged along the top of the board, with a tail dangling down each side
+function buildLights(W, top) {
+  const g = new THREE.Group();
+  const x0 = -W / 2 - 0.06, x1 = W / 2 + 0.06, z = 0.07, sag = 0.34;
+  const pts = [new THREE.Vector3(x0 - 0.1, top - 1.25, z + 0.05), new THREE.Vector3(x0 - 0.06, top - 0.6, z + 0.03), new THREE.Vector3(x0, top + 0.03, z)];
+  const swags = 3;
+  for (let i = 0; i < swags; i++) {
+    const a = x0 + (x1 - x0) * i / swags, b = x0 + (x1 - x0) * (i + 1) / swags;
+    for (const f of [0.25, 0.5, 0.75]) pts.push(new THREE.Vector3(a + (b - a) * f, top + 0.03 - sag * Math.sin(Math.PI * f), z + 0.02));
+    pts.push(new THREE.Vector3(b, top + 0.03, z));
+  }
+  pts.push(new THREE.Vector3(x1 + 0.07, top - 0.55, z + 0.03), new THREE.Vector3(x1 + 0.12, top - 1.05, z + 0.05));
+  const curve = new THREE.CatmullRomCurve3(pts, false, 'centripetal');
+  const wire = new THREE.Mesh(new THREE.TubeGeometry(curve, 160, 0.016, 6, false), new THREE.MeshStandardMaterial({ color: '#14381f', roughness: 0.6 }));
+  wire.castShadow = true; g.add(wire);
+  const N = 30, bulbGeo = new THREE.SphereGeometry(0.068, 12, 10), sockGeo = new THREE.CylinderGeometry(0.03, 0.035, 0.07, 8);
+  bulbGeo.scale(1, 1.55, 1);
+  const sockMat = new THREE.MeshStandardMaterial({ color: '#163d22', roughness: 0.5 });
+  const mats = [0, 1, 2, 3, 4, 5].map(() => new THREE.MeshStandardMaterial({ color: '#ffffff', emissive: '#ffffff', emissiveIntensity: 1.5, roughness: 0.25, transparent: true, opacity: 0.95, toneMapped: false }));
+  const bulbs = [];
+  for (let i = 0; i < N; i++) {
+    const u = (i + 0.5) / N, p = curve.getPointAt(u);
+    const b = new THREE.Group(); b.position.copy(p);
+    b.rotation.z = (Math.random() - 0.5) * 0.7; b.rotation.x = 0.25 + (Math.random() - 0.5) * 0.3;   // they hang, a bit untidily
+    const sock = new THREE.Mesh(sockGeo, sockMat); sock.position.y = -0.04; b.add(sock);
+    const bulb = new THREE.Mesh(bulbGeo, mats[i % mats.length]); bulb.position.y = -0.14; b.add(bulb);
+    g.add(b); bulbs.push(bulb);
+  }
+  const glow = new THREE.PointLight('#ffffff', 0, 3.2, 2); glow.position.set(0, top - 0.4, 0.7); g.add(glow);
+  let palette = null;
+  return {
+    group: g,
+    set(kind) {
+      const pal = kind === 'hanukkah' ? BLUES : XMAS;
+      if (pal === palette) return;
+      palette = pal;
+      mats.forEach((m, i) => { const c = pal[i % pal.length]; m.color.set(c); m.emissive.set(c); });
+      glow.color.set(kind === 'hanukkah' ? '#4a8cff' : '#ffb070');
+    },
+    tick(t) {
+      // a slow twinkle, each colour on its own beat, with a chase rippling through now and then
+      mats.forEach((m, i) => { m.emissiveIntensity = 1.1 + 0.9 * Math.max(0, Math.sin(t * (0.9 + i * 0.23) + i * 1.7)) + (Math.sin(t * 0.5) > 0.92 ? 1.2 * Math.max(0, Math.sin(t * 9 - i)) : 0); });
+      glow.intensity = 1.6 + 0.5 * Math.sin(t * 1.3);
+    },
+  };
+}
 
 export function buildSafetyBoard(scene) {
   const cv = document.createElement('canvas'); cv.width = 1024; cv.height = 680;
@@ -17,6 +93,19 @@ export function buildSafetyBoard(scene) {
   // beside the portal, on the camera's left in the Overview shot, turned to face it
   g.position.set(-1.6, 0, 6.6);
   g.rotation.y = Math.atan2(22 - g.position.x, 12 - g.position.z);
+
+  // holiday lights: put up and taken down by the calendar (checked every few minutes)
+  let lights = null, holiday = null, checkedAt = -1e9;
+  function seasonCheck(t) {
+    if (t - checkedAt < 300) return;
+    checkedAt = t;
+    const h = holidayOn();
+    if (h === holiday) return;
+    holiday = h;
+    if (h && !lights) { lights = buildLights(W, face.position.y + H / 2); g.add(lights.group); }
+    if (lights) { lights.group.visible = !!h; if (h) lights.set(h); }
+  }
+  seasonCheck(0);
 
   let state = { days: null, fuel: null, open: null, tickets: null, excuse: '', shelf: null, jammedNow: false };
   function draw() {
@@ -65,6 +154,8 @@ export function buildSafetyBoard(scene) {
   draw();
   return {
     group: g,
+    get holiday() { return holiday; },
+    tick(t) { seasonCheck(t); if (holiday && lights) lights.tick(t); },
     update(q, { jammed = false } = {}) {
       if (q) {
         state.days = q.lastJam ? Math.floor((Date.now() - q.lastJam) / 86400000) : Infinity;

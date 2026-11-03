@@ -19,8 +19,15 @@
 //  • The portal runs on fuel: a daily budget of drop writes. Out of fuel, drops are refused
 //    politely and the page holds them in Lost & Found until it refuels (00:00 UTC, when
 //    Cloudflare's own daily limits reset).
-//  • Readers (quota, warehouse, the pile) share short-lived copies in the edge cache.
+//  • Readers (quota, warehouse, the pile) share short-lived copies in the edge cache, and the
+//    copies are shaped so a reader never has to parse the big records: the Warehouse is cached
+//    without its recipes, and the pile is stored one drop per line behind a one-line header, so
+//    "anything new since T?" is answered from the header alone.
+//  • Drops are stored slim (Debris Drop v2, js/dropcodec.js), about 4× smaller than v1.
+//  • POSTs from the page are sent as text/plain, so browsers skip the CORS preflight (one
+//    request per POST, not two); real preflights are cached for a day.
 import { recipePrompt, objectKey } from '../js/prompt.js';
+import { slimDrop } from '../js/dropcodec.js';
 
 const DEFAULT_ORIGINS = ['https://samuelling.github.io'];
 const CACHE = 'https://tunnel-cache.invalid/';
@@ -71,18 +78,33 @@ function roll(fab, now) {
   if (fab.hour !== h) { fab.hour = h; fab.hourUsed = 0; }
   return fab;
 }
+// the Warehouse as readers see it: counters + names, no recipes (a fraction of the size)
+const lite = (fab) => ({ ...fab, shelf: fab.shelf.map(({ k, name, icon, at }) => ({ k, name, icon, at })) });
+const FAB_TTL = 30;
+function cacheLite(ctx, fab) {
+  ctx.waitUntil(caches.default.put(new Request(CACHE + 'fab-lite'), new Response(JSON.stringify(lite(fab)), { headers: { 'cache-control': `max-age=${FAB_TTL}` } })));
+}
 async function writeFab(env, ctx, fab) {
-  const text = JSON.stringify(fab);
-  await env.DROPS.put('fab', text);
-  ctx.waitUntil(caches.default.put(new Request(CACHE + 'fab'), new Response(text, { headers: { 'cache-control': 'max-age=10' } })));
+  await env.DROPS.put('fab', JSON.stringify(fab));
+  cacheLite(ctx, fab);
 }
 async function cachedFab(env, ctx) {
-  const key = new Request(CACHE + 'fab');
-  const hit = await caches.default.match(key);
-  if (hit) { try { return { ...await readFabText(await hit.text()) }; } catch (e) { /* fall through */ } }
+  const hit = await caches.default.match(new Request(CACHE + 'fab-lite'));
+  if (hit) { try { return readFabText(await hit.text()); } catch (e) { /* fall through */ } }
   const fab = await readFab(env);
-  ctx.waitUntil(caches.default.put(key, new Response(JSON.stringify(fab), { headers: { 'cache-control': 'max-age=10' } })));
-  return fab;
+  cacheLite(ctx, fab);
+  return lite(fab);
+}
+// one shelf item's recipe; recipes never change, so its cached copy lives for a day
+async function shelfItem(env, ctx, k) {
+  const key = new Request(CACHE + 'item/' + encodeURIComponent(k));
+  const hit = await caches.default.match(key);
+  if (hit) { try { return await hit.json(); } catch (e) { /* fall through */ } }
+  const it = (await readFab(env)).shelf.find(x => x.k === k);
+  if (!it) return null;
+  const out = { recipe: it.recipe, name: it.name };
+  ctx.waitUntil(caches.default.put(key, new Response(JSON.stringify(out), { headers: { 'cache-control': 'max-age=86400' } })));
+  return out;
 }
 const readFabText = (t) => ({ day: '', dayUsed: 0, hour: 0, hourUsed: 0, lastJam: 0, shelf: [], ...JSON.parse(t) });
 function status(fab, env, now) {
@@ -93,22 +115,73 @@ function status(fab, env, now) {
     lastJam: fab.lastJam || 0, shelf: fab.shelf.length };
 }
 
-// ---- the 'recent' record: the pile's last drops + today's fuel use
-const RECENT_TTL = 10;
-function parseRecent(text) {
+const shelfList = (fab) => fab.shelf.slice().reverse().map(({ k, name, icon, at }) => ({ k, name, icon, at }));
+
+// ---- the pile's mailbox, record 'recent'. v2 layout, one drop per line:
+//   {"v":2,"fuelDay":"2026-11-03","fuelUsed":12,"last":1793...}      ← header
+//   1793...\t{…drop…}                                               ← "at", a tab, the drop
+// so readers can answer "anything since T?" from the header, and pull out new drops without
+// parsing any of them. (v1 was one big JSON object; it's converted the first time it's read.)
+const RECENT_TTL = 15;
+const PILE_KEY = CACHE + 'drops/v2';
+const emptyHead = () => ({ v: 2, fuelDay: '', fuelUsed: 0, last: 0 });
+function parseRecent(text) {   // v1
   const v = JSON.parse(text || '[]');
   return Array.isArray(v) ? { fuelDay: '', fuelUsed: 0, drops: v } : { fuelDay: '', fuelUsed: 0, drops: [], ...v };
 }
-async function cachedRecent(env, ctx) {
-  const key = new Request(CACHE + 'drops/recent');
-  const hit = await caches.default.match(key);
-  if (hit) return parseRecent(await hit.text());
-  const text = (await env.DROPS.get('recent')) || '[]';
-  ctx.waitUntil(caches.default.put(key, new Response(text, { headers: { 'cache-control': `max-age=${RECENT_TTL}` } })));
-  return parseRecent(text);
+const headOf = (text) => { const nl = text.indexOf('\n'); return { ...emptyHead(), ...JSON.parse(nl < 0 ? text : text.slice(0, nl)) }; };
+const isV2 = (text) => text.startsWith('{"v":2');
+function v1ToV2(text) {
+  const old = parseRecent(text);
+  const lines = old.drops.map(d => `${d.at}\t${JSON.stringify(slimDrop(d))}`);
+  return JSON.stringify({ v: 2, fuelDay: old.fuelDay, fuelUsed: old.fuelUsed, last: old.drops[old.drops.length - 1]?.at || 0 }) + (lines.length ? '\n' + lines.join('\n') : '');
 }
-function fuelStatus(rec, env, now) {
-  const cap = cfg(env).fuel, used = rec.fuelDay === fuelDay(now) ? rec.fuelUsed : 0;
+const HEAD_KEY = CACHE + 'drops/v2-head';
+function cachePile(ctx, text) {
+  const nl = text.indexOf('\n');
+  const h = { headers: { 'cache-control': `max-age=${RECENT_TTL}` } };
+  ctx.waitUntil(Promise.all([
+    caches.default.put(new Request(PILE_KEY), new Response(text, h)),
+    caches.default.put(new Request(HEAD_KEY), new Response(nl < 0 ? text : text.slice(0, nl), h)),   // ~100 bytes
+  ]));
+}
+// just the header line: what idle pollers and the status board need
+async function pileHead(env, ctx) {
+  const hit = await caches.default.match(new Request(HEAD_KEY));
+  if (hit) { try { return headOf(await hit.text()); } catch (e) { /* fall through */ } }
+  return headOf(await cachedPile(env, ctx));
+}
+// the stored text, from KV (converting a v1 record once, for good)
+async function storedPile(env, ctx) {
+  let text = (await env.DROPS.get('recent')) || '';
+  if (!text) return JSON.stringify(emptyHead());
+  if (!isV2(text)) { text = v1ToV2(text); await env.DROPS.put('recent', text); }
+  return text;
+}
+async function cachedPile(env, ctx) {
+  const hit = await caches.default.match(new Request(PILE_KEY));
+  if (hit) return hit.text();
+  const text = await storedPile(env, ctx);
+  cachePile(ctx, text);
+  return text;
+}
+// the drops after `since`, as raw JSON strings, oldest first (scans back from the end)
+function linesSince(text, since) {
+  const out = [], top = text.indexOf('\n');
+  if (top < 0) return out;
+  let end = text.length;
+  while (end > top) {
+    const start = text.lastIndexOf('\n', end - 1);
+    const line = text.slice(start + 1, end); end = start;
+    if (!line) continue;
+    const tab = line.indexOf('\t');
+    if (+line.slice(0, tab) <= since) break;
+    out.push(line.slice(tab + 1));
+  }
+  return out.reverse();
+}
+function fuelStatus(head, env, now) {
+  const cap = cfg(env).fuel, used = head.fuelDay === fuelDay(now) ? head.fuelUsed : 0;
   return { fuel: Math.max(0, 1 - used / cap), fuelLeft: Math.max(0, cap - used), fuelCap: cap, refuelIn: refuelIn(now) };
 }
 
@@ -123,27 +196,28 @@ export default {
     const reply = (body, status = 200, extra = {}) => new Response(typeof body === 'string' ? body : JSON.stringify(body), {
       status, headers: { ...cors, 'content-type': typeof body === 'string' ? 'text/plain' : 'application/json', ...extra } });
 
-    if (req.method === 'OPTIONS') return new Response(null, { headers: { ...cors, 'Access-Control-Allow-Origin': origin || '*', 'Access-Control-Allow-Private-Network': 'true' } });
+    if (req.method === 'OPTIONS') return new Response(null, { headers: { ...cors, 'Access-Control-Allow-Origin': origin || '*', 'Access-Control-Allow-Private-Network': 'true', 'Access-Control-Max-Age': '86400' } });
     const url = new URL(req.url), path = url.pathname.replace(/\/$/, '') || '/';
     if (!env.DROPS && path !== '/') return json({ error: 'no KV namespace bound as DROPS' }, 501);
     const now = Date.now();
 
     if (path === '/drops') return drops(req, env, url, ok, origin, ctx);
+    const brief = { 'cache-control': 'public, max-age=10' };
     if (path === '/quota') {
-      const [fab, rec] = await Promise.all([cachedFab(env, ctx), cachedRecent(env, ctx)]);
-      return json({ ...status(fab, env, now), ...fuelStatus(rec, env, now), on: !!env.ANTHROPIC_API_KEY });
+      const [fab, head] = await Promise.all([cachedFab(env, ctx), pileHead(env, ctx)]);
+      const out = { ...status(fab, env, now), ...fuelStatus(head, env, now), on: !!env.ANTHROPIC_API_KEY, wire: 2 };
+      if (url.searchParams.has('shelf')) out.items = shelfList(fab);   // the Fabricator dialog asks for both at once
+      return json(out, 200, brief);
     }
-    if (path === '/warehouse') {
-      const fab = await cachedFab(env, ctx);
-      return json({ items: fab.shelf.slice().reverse().map(({ k, name, icon, at }) => ({ k, name, icon, at })) });
-    }
+    if (path === '/warehouse') return json({ items: shelfList(await cachedFab(env, ctx)) }, 200, brief);
     if (path === '/warehouse/item') {
-      const k = objectKey(url.searchParams.get('k') || '');
-      const it = (await cachedFab(env, ctx)).shelf.find(x => x.k === k) || (await readFab(env)).shelf.find(x => x.k === k);
-      return it ? json({ recipe: it.recipe, name: it.name }) : json({ error: 'not on the shelf' }, 404);
+      const it = await shelfItem(env, ctx, objectKey(url.searchParams.get('k') || ''));
+      return it ? json(it, 200, { 'cache-control': 'public, max-age=86400' }) : json({ error: 'not on the shelf' }, 404);
     }
     if (path === '/jam') {
       if (req.method !== 'POST' || !ok) return json({ error: 'nope' }, 405);
+      const seen = await cachedFab(env, ctx);   // a jam in the last 10 minutes already counts: no read, no write
+      if (now - (seen.lastJam || 0) <= 10 * 60000) return json({ lastJam: seen.lastJam });
       const fab = await readFab(env);
       if (now - (fab.lastJam || 0) > 10 * 60000) { fab.lastJam = now; await writeFab(env, ctx, fab); }
       return json({ lastJam: fab.lastJam });
@@ -162,24 +236,15 @@ export default {
     const k = objectKey(what);
     if (!k) return reply('say what to shred', 400);
 
-    let fab = await readFab(env);
+    const seen = await cachedFab(env, ctx);
     // 1. the Warehouse: anyone made it before? free
-    const onShelf = fab.shelf.find(x => x.k === k);
-    if (onShelf) return reply({ recipe: onShelf.recipe, shelf: true }, 200, { 'x-cache': 'shelf' });
-    // 1b. the old per-name cache (from before the Warehouse): move it onto the shelf, still free
-    const old = await caches.default.match(new Request(CACHE + 'v1/' + encodeURIComponent(what.toLowerCase())));
-    if (old) {
-      try {
-        const { recipe } = await old.json();
-        fab.shelf.push({ k, name: recipe.name || what, icon: recipe.icon || '✨', at: now, recipe });
-        while (fab.shelf.length > SHELF_MAX) fab.shelf.shift();
-        await writeFab(env, ctx, fab);
-        return reply({ recipe, shelf: true }, 200, { 'x-cache': 'shelf' });
-      } catch (e) { /* treat as new */ }
+    if (seen.shelf.some(x => x.k === k)) {
+      const it = await shelfItem(env, ctx, k);
+      if (it) return reply({ recipe: it.recipe, shelf: true }, 200, { 'x-cache': 'shelf' });
     }
     if (!env.ANTHROPIC_API_KEY) return reply('“Type anything” isn’t switched on yet: the Worker has no Claude API key. The built-in objects all work.', 501);
-    // 2. shop hours and the hourly pool
-    const st = status(fab, env, now);
+    // 2. shop hours and the hourly pool (from the shared copy; the real count is redone at write time)
+    const st = status(seen, env, now);
     if (!st.open) {
       const hrs = Math.max(1, Math.round(st.opensIn / 3.6e6));
       return reply(`CLOSED. ${st.excuse} Back at 9 AM Eastern (in about ${hrs} h). Everything in the Warehouse is still free.`, 429, { 'x-shop': 'closed' });
@@ -201,7 +266,7 @@ export default {
     let recipe;
     try { recipe = JSON.parse(text.slice(a, b + 1)); } catch (e) { return reply('Claude returned something unparseable', 502); }
     // 4. one write: count it and shelve it (re-read first so a parallel shelving isn't lost)
-    fab = roll(await readFab(env), now);
+    const fab = roll(await readFab(env), now);
     fab.dayUsed++; fab.hourUsed++;
     if (!fab.shelf.some(x => x.k === k)) fab.shelf.push({ k, name: recipe.name || what, icon: recipe.icon || '✨', at: now, recipe });
     while (fab.shelf.length > SHELF_MAX) fab.shelf.shift();
@@ -212,41 +277,53 @@ export default {
 };
 
 // ---------------------------------------------------------------- the portal's mailbox
-const KEEP = 300;
+const KEEP = 300, KEEP_CHARS = 12e6;
 async function drops(req, env, url, ok, origin, ctx) {
   const headers = { 'Access-Control-Allow-Origin': origin || '*', 'Vary': 'Origin', 'content-type': 'application/json', 'cache-control': 'no-store', 'Access-Control-Expose-Headers': 'x-portal' };
   const now = Date.now();
   if (req.method === 'GET') {
     const since = +url.searchParams.get('since') || 0;
-    const rec = await cachedRecent(env, ctx);
-    return new Response(JSON.stringify({ now, drops: rec.drops.filter(d => d.at > since) }), { headers });
+    // nothing new: answered from the cached header line; the drops themselves are never touched
+    let text = null, head = null, fresh = [];
+    const hh = await caches.default.match(new Request(HEAD_KEY));
+    if (hh) { try { head = headOf(await hh.text()); } catch (e) { /* read the whole thing */ } }
+    if (!head) { text = await cachedPile(env, ctx); head = headOf(text); }
+    if (since < head.last) { text = text ?? await cachedPile(env, ctx); head = headOf(text); fresh = linesSince(text, since); }
+    return new Response(`{"now":${now},"last":${head.last},"drops":[${fresh.join(',')}]}`, { headers });
   }
   if (req.method !== 'POST') return new Response('{}', { status: 405, headers });
   if (!ok) return new Response(JSON.stringify({ error: 'origin not allowed' }), { status: 403, headers });
+  const today = fuelDay(now), cap = cfg(env).fuel;
+  const noFuel = () => new Response(JSON.stringify({ error: 'out of fuel', refuelIn: refuelIn(now) }), { status: 503, headers: { ...headers, 'x-portal': 'out-of-fuel' } });
+  // out of fuel, by the shared copy? say so without reading the mailbox
+  const seen = await caches.default.match(new Request(HEAD_KEY));
+  if (seen) { try { const h = headOf(await seen.text()); if (h.fuelDay === today && h.fuelUsed >= cap) return noFuel(); } catch (e) { /* read it properly */ } }
   if (env.LIMITER) {
     const { success } = await env.LIMITER.limit({ key: 'd:' + (req.headers.get('CF-Connecting-IP') || 'anon') });
     if (!success) return new Response(JSON.stringify({ error: 'the portal needs a breather' }), { status: 429, headers });
   }
-  const text = await req.text();
-  if (text.length > 600000) return new Response(JSON.stringify({ error: 'too big' }), { status: 413, headers });
+  const body = await req.text();
+  if (body.length > 600000) return new Response(JSON.stringify({ error: 'too big' }), { status: 413, headers });
   let d;
-  try { d = JSON.parse(text); } catch (e) { return new Response(JSON.stringify({ error: 'bad json' }), { status: 400, headers }); }
+  try { d = JSON.parse(body); } catch (e) { return new Response(JSON.stringify({ error: 'bad json' }), { status: 400, headers }); }
   if (!d || !Array.isArray(d.pieces) || !d.pieces.length) return new Response(JSON.stringify({ error: 'no pieces' }), { status: 400, headers });
-  const rec = parseRecent(await env.DROPS.get('recent'));
-  const today = fuelDay(now);
-  if (rec.fuelDay !== today) { rec.fuelDay = today; rec.fuelUsed = 0; }
-  if (rec.fuelUsed >= cfg(env).fuel) {
-    return new Response(JSON.stringify({ error: 'out of fuel', refuelIn: refuelIn(now) }), { status: 503, headers: { ...headers, 'x-portal': 'out-of-fuel' } });
-  }
+  const text = await storedPile(env, ctx);
+  const nl = text.indexOf('\n');
+  const head = headOf(text);
+  if (head.fuelDay !== today) { head.fuelDay = today; head.fuelUsed = 0; }
+  if (head.fuelUsed >= cap) return noFuel();
   d.pieces = d.pieces.slice(0, d.payload ? 400 : 120);
   if (Array.isArray(d.objects)) d.objects = d.objects.slice(0, 60);
+  d = slimDrop(d);   // pages from before v2 still send fat drops; store them slim
   d.id = crypto.randomUUID();
-  d.at = Math.max(now, (rec.drops[rec.drops.length - 1]?.at || 0) + 1);
-  rec.drops.push(d);
-  rec.fuelUsed++;
-  while (rec.drops.length > KEEP || JSON.stringify(rec.drops).length > 20e6) rec.drops.shift();
-  const out = JSON.stringify(rec);
+  d.at = Math.max(now, head.last + 1);
+  const lines = nl < 0 ? [] : text.slice(nl + 1).split('\n').filter(Boolean);
+  lines.push(`${d.at}\t${JSON.stringify(d)}`);
+  let chars = lines.reduce((n, l) => n + l.length + 1, 0);
+  while (lines.length > KEEP || (chars > KEEP_CHARS && lines.length > 1)) chars -= lines.shift().length + 1;
+  head.fuelUsed++; head.last = d.at;
+  const out = JSON.stringify({ v: 2, fuelDay: head.fuelDay, fuelUsed: head.fuelUsed, last: head.last }) + '\n' + lines.join('\n');
   await env.DROPS.put('recent', out);
-  ctx.waitUntil(caches.default.put(new Request(CACHE + 'drops/recent'), new Response(out, { headers: { 'cache-control': `max-age=${RECENT_TTL}` } })));
-  return new Response(JSON.stringify({ id: d.id, at: d.at, fuelLeft: Math.max(0, cfg(env).fuel - rec.fuelUsed) }), { status: 201, headers });
+  cachePile(ctx, out);
+  return new Response(JSON.stringify({ id: d.id, at: d.at, fuelLeft: Math.max(0, cap - head.fuelUsed) }), { status: 201, headers });
 }
