@@ -77,7 +77,7 @@ export function buildScene(renderer) {
   const uv = ring.geometry.attributes.uv, pos = ring.geometry.attributes.position;
   for (let i = 0; i < uv.count; i++) {
     const x = pos.getX(i), y = pos.getY(i), r = Math.hypot(x, y);
-    uv.setXY(i, (Math.atan2(y, x) / (2 * Math.PI) + 0.5) * 2, (r - PORTAL.R - 0.45) / 0.8);
+    uv.setXY(i, (0.5 - Math.atan2(y, x) / (2 * Math.PI)) * 2, (r - PORTAL.R - 0.45) / 0.8);   // clockwise from above, so it reads the right way round
   }
   ringTex.wrapS = THREE.RepeatWrapping;
   ring.rotation.x = -Math.PI / 2; ring.position.y = 0.012; scene.add(ring);
