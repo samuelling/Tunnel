@@ -15,6 +15,8 @@ import { shatterMesh, chunkMaterial } from './fracture.js';
 import { strengthOf, scaleStrength, BLADE, fmtForce } from './strength.js';
 import { buildOutOfOrder } from './outoforder.js';
 import { SessionPile, renderPileImage } from './sharepile.js';
+import { PileCam } from './pilecam.js';
+import { WORKER_URL } from './settings.js';
 import { Particles } from './particles.js';
 import { Audio } from './audio.js';
 import { generateRecipe, generatorAvailable } from './claude.js';
@@ -64,7 +66,7 @@ async function boot() {
   particles = new Particles(rig);
   drops = new DropCollector({
     onJudge: (root) => { verdict(root); root.done = true; },
-    onSent: (d) => (showTally(), toast(`🌀 ${d.object.icon} ${d.object.name}: ${d.pieces.length} pieces delivered to World Builder`)),
+    onSent: (d) => { showTally(); toast(`🌀 ${d.object.icon} ${d.object.name}: ${d.pieces.length} pieces delivered to World Builder`); if (pileCam && pileCam.running && d.id) pileCam.arrive(d); },
     onParked: (d) => (showTally(), toast(`🌀 ${d.object.icon} ${d.object.name} went through the portal (World Builder link not set up yet)`)),
     onFail: (d) => toast(`🌀 ${d.object.name} went through, but World Builder didn't answer. Kept it for later.`),
   });
@@ -81,7 +83,7 @@ async function boot() {
 function fail(msg) { $('loading').innerHTML = `<div class="err"><b>TUNNEL</b><p>${msg}</p><p>Needs a recent browser with WebGL and WebAssembly.</p></div>`; }
 
 function resize() {
-  const w = innerWidth, h = innerHeight;
+  const w = renderer.domElement.clientWidth || innerWidth, h = renderer.domElement.clientHeight || innerHeight;
   renderer.setSize(w, h, false);
   camera.aspect = w / h;
   // keep a usable horizontal field of view on portrait phones
@@ -714,6 +716,49 @@ async function openShare() {
   $('shareText').href = `sms:${/iPhone|iPad|Mac/.test(navigator.userAgent) ? '&' : '?'}body=${encodeURIComponent(text)}`;
 }
 
+// ------------------------------------------------------------------------------- split view
+let pileCam = null;
+function mailboxUrl() {
+  try { const w = localStorage.getItem('tunnelWorker'); if (w) return w.replace(/\/$/, '') + '/drops'; } catch {}
+  return WORKER_URL ? WORKER_URL.replace(/\/$/, '') + '/drops' : '';
+}
+function setSplit(on) {
+  document.body.classList.toggle('split', on);
+  $('pane').hidden = !on;
+  requestAnimationFrame(() => {
+    resize();
+    if (on) setPaneSource($('paneSrc').value);
+    else { pileCam?.stop(); $('paneFrame').src = 'about:blank'; }
+  });
+}
+function setPaneSource(src) {
+  const live = src === 'live';
+  $('pileCanvas').hidden = live;
+  if (!live) {
+    $('paneFrame').hidden = true; $('paneLive').hidden = true; $('paneFrame').src = 'about:blank';
+    if (!pileCam) {
+      pileCam = new PileCam($('pileCanvas'), mailboxUrl());
+      pileCam.onNote = (t) => { $('paneStat').textContent = `${t.pieces.toLocaleString()} pieces · ${t.kg.toFixed(0)} kg so far`; };
+      if (!mailboxUrl()) $('paneStat').textContent = 'no mailbox set up';
+    }
+    pileCam.start(); pileCam.resize();
+  } else {
+    pileCam?.stop();
+    let u = ''; try { u = localStorage.getItem('wbLiveUrl') || ''; } catch {}
+    $('paneUrl').value = u || 'http://localhost:3000';
+    if (u) showLive(u); else { $('paneFrame').hidden = true; $('paneLive').hidden = false; }
+  }
+}
+function showLive(u) {
+  const url = new URL(u, location.href);
+  url.searchParams.set('visit', 'shred-pile');
+  $('paneLive').hidden = true;
+  $('paneFrame').hidden = false;
+  $('paneFrame').src = url.href;
+  $('paneStat').textContent = url.host;
+}
+addEventListener('resize', () => { if (pileCam?.running) pileCam.resize(); });
+
 // ------------------------------------------------------------------------------- loop
 let last = performance.now(), acc = 0, frames = 0;
 function loop(now) {
@@ -871,6 +916,11 @@ function buildUI() {
   $('btnClear').onclick = () => { for (const b of [...bodies]) removeBody(b, 'dissolve'); particles.clear(); roots.clear(); };
   $('btnInfo').onclick = () => { $('info').hidden = !$('info').hidden; };
   $('btnShare').onclick = openShare;
+  $('btnSplit').onclick = () => setSplit(!document.body.classList.contains('split'));
+  $('paneClose').onclick = () => setSplit(false);
+  $('paneSrc').onchange = () => setPaneSource($('paneSrc').value);
+  $('paneGo').onclick = () => { const u = $('paneUrl').value.trim(); if (u) { try { localStorage.setItem('wbLiveUrl', u); } catch {} showLive(u); } };
+  if (new URLSearchParams(location.search).has('split') && innerWidth >= 900) setSplit(true);
   $('shareClose').onclick = () => { $('shareBox').hidden = true; };
   $('infoClose').onclick = () => { $('info').hidden = true; };
   $('start').onclick = () => {
@@ -903,7 +953,7 @@ function buildUI() {
   });
   addEventListener('keydown', (e) => {
     if (e.target.tagName === 'INPUT') return;
-    if (e.code === 'Space' && armed) { e.preventDefault(); throwArmed(innerWidth / 2, innerHeight / 2, null); }
+    if (e.code === 'Space' && armed) { e.preventDefault(); throwArmed(renderer.domElement.clientWidth / 2, innerHeight / 2, null); }
     if (e.key === 'c') setCamera((camMode + 1) % CAMS.length);
   });
 }
@@ -1022,7 +1072,8 @@ function throwArmed(sx, sy, swipe) {
   if (!armed) return;
   audio.start();
   // aim: where the pointer ray meets a level plane just above the intake (world space)
-  const ndc = new THREE.Vector2(sx / innerWidth * 2 - 1, -(sy / innerHeight) * 2 + 1);
+  const rc = renderer.domElement.getBoundingClientRect();
+  const ndc = new THREE.Vector2((sx - rc.left) / rc.width * 2 - 1, -((sy - rc.top) / rc.height) * 2 + 1);
   ray.setFromCamera(ndc, camera);
   const topY = TUN.groundX + 1.4;
   const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -topY);

@@ -178,3 +178,26 @@ button, input { font: inherit; color: inherit; }
 #tray .item.make { position: relative; }
 .tixb { position: absolute; top: 3px; right: 3px; background: #1f7a3a; color: #fff; font: 800 10px var(--sans); border-radius: 8px; padding: 1px 5px; }
 .tixb.empty { background: #c1121f; }
+
+/* split view: the Shred Pile beside the tunnel */
+:root { --paneW: 0px; }
+#btnSplit { display: none; }
+@media (min-width: 900px) and (min-height: 520px) { #btnSplit { display: inline-flex; } }
+body.split { --paneW: min(46vw, 760px); }
+body.split #c { width: calc(100% - var(--paneW)); }
+body.split #tools, body.split #throttleBox { right: calc(12px + var(--paneW)); }
+body.split #tray { right: var(--paneW); }
+body.split #verdict, body.split #damage, body.split #toast { left: calc(50% - var(--paneW) / 2); }
+body.split #btnSplit { outline: 2px solid var(--y); }
+#pane { position: fixed; top: 0; right: 0; bottom: 0; width: var(--paneW); background: #0b0d12; border-left: 2px solid #3b1d6b; display: flex; flex-direction: column; z-index: 5; }
+#pane .paneBar { display: flex; align-items: center; gap: 10px; padding: calc(8px + var(--st)) 10px 8px 14px; background: linear-gradient(90deg, #2b0a4a, #12151a); font-size: 12px; }
+#pane .paneBar b { font: 800 13px var(--sans); letter-spacing: 0.1em; color: #e9d8ff; }
+#paneStat { flex: 1; color: var(--m); font: 500 11px var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#pane select { background: #0b0d10; color: var(--t); border: 1px solid var(--line); border-radius: 8px; padding: 4px 6px; font-size: 12px; }
+#paneClose { background: none; border: none; color: var(--m); font-size: 16px; cursor: pointer; }
+#pileCanvas, #paneFrame { flex: 1; width: 100%; min-height: 0; display: block; border: 0; touch-action: none; }
+#paneLive { padding: 16px; color: var(--t); font-size: 13px; }
+#paneLive .row { display: flex; gap: 8px; margin: 10px 0; }
+#paneLive input { flex: 1; background: #0b0d10; border: 1px solid var(--line); border-radius: 8px; padding: 9px 10px; color: var(--t); }
+#paneLive button { background: var(--y); color: #111; border: none; border-radius: 8px; padding: 0 14px; font-weight: 800; cursor: pointer; }
+#paneLive .dim { color: var(--m); }

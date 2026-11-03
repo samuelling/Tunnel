@@ -94,7 +94,11 @@ export class DropCollector {
     await Promise.all(targets.map(async (url) => {
       try {
         const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(drop) });
-        if (res.ok) ok = true;
+        if (res.ok) {
+          ok = true;
+          // the relay assigns the drop's id (which seeds its place on the pile); keep it
+          if (url.includes('workers.dev') || url.endsWith('/drops')) { try { const j = await res.json(); if (j && j.id) { drop.id = j.id; drop.at = j.at || drop.at; } } catch (e) { /* not json */ } }
+        }
       } catch (e) { /* unreachable target */ }
     }));
     if (ok) this.onSent?.(drop); else { this.park(drop); this.onFail?.(drop); }

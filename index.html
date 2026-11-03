@@ -37,6 +37,7 @@
   <button id="btnChaos" title="Throw 8 random things">🎲</button>
   <button id="btnClear" title="Clear debris">🧹</button>
   <button id="btnShare" title="Share a picture of your shred pile">📸</button>
+  <button id="btnSplit" title="Split view: watch the Shred Pile at the far end of the portal">🪟</button>
   <button id="btnInfo" title="How it works">ⓘ</button>
 </div>
 
@@ -51,6 +52,20 @@
 <div id="slowBadge" hidden>SLOW-MO</div>
 <div id="verdict" hidden></div>
 <div id="card" hidden></div>
+<div id="pane" hidden>
+  <div class="paneBar">
+    <b>🌀 THE SHRED PILE</b><span id="paneStat"></span>
+    <select id="paneSrc" title="What to show"><option value="cam">Pile Cam</option><option value="live">Live World Builder</option></select>
+    <button id="paneClose" title="Close split view">✕</button>
+  </div>
+  <canvas id="pileCanvas"></canvas>
+  <iframe id="paneFrame" hidden title="World Builder" allow="fullscreen"></iframe>
+  <div id="paneLive" hidden>
+    <p><b>Live World Builder</b> shows Matt's actual world, if it's running somewhere this browser can reach (on his computer that's <code>http://localhost:3000</code>).</p>
+    <div class="row"><input id="paneUrl" placeholder="http://localhost:3000" autocomplete="off"><button id="paneGo">Show it</button></div>
+    <p class="dim">Pile Cam shows the same pile anywhere: it reads the same mailbox, and each drop's place is worked out from its id.</p>
+  </div>
+</div>
 <div id="damage" hidden></div>
 <div id="shareBox" hidden>
   <div class="sh">

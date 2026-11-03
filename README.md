@@ -25,6 +25,7 @@ The HUD shows wind speed (with its Beaufort number), fan rpm, motor power, blade
 ## Controls
 
 - Pick an object in the tray, then **flick** on the scene to throw it (or tap / press space for a gentle toss). Two fingers or right-drag to look around.
+- **🪟 Split view** (desktop): the Shred Pile beside the tunnel. **Pile Cam** is World Builder's Shred Pile ported to stand alone (`js/pilecam.js`). It reads the same mailbox, uses the same constants and seeds each drop's place from its id, so it matches Matt's pile, and your own drops fall out of its sky portal the moment they're sent. **Live World Builder** shows the real world in the pane (`?visit=shred-pile`) when one is reachable, e.g. `http://localhost:3000` on Matt's machine. Add `?split` to the URL to open in split view.
 - **📸** renders this session's pile (everything that went through the portal, heaped at the angle of repose) with a list of what went in and what it was made of. It opens the phone's share sheet (Messages, Mail), or you can save the image or send the text by email or SMS.
 - **FAN** slider is bipolar. Above the centre line (SHRED) it pulls air down onto the blades; below it (LIFT) the rotor reverses and blows air up the tube at ~65% of the forward flow, so light things levitate or get blown out the top while heavy ones sink into the blades. Centre = off. 🎥 cycles cameras (Overview, Hopper, Blades, Window, Portal, Follow). 🐢 slow motion. ⏱️ auto bullet-time right before the chop. 💨 smoke tracers. 🎲 chaos.
 
@@ -87,6 +88,7 @@ js/objects.js    object recipes, recipe → meshes/colliders/mass properties
 js/strength.js   breakability: material table, E_break and cutting force, blade limits
 js/outoforder.js the OUT OF ORDER sign
 js/sharepile.js  session pile → heap render + inventory → share image
+js/pilecam.js    split view: World Builder's Shred Pile, standalone, live from the mailbox
 js/bigstuff.js   the big stuff (bank safe, granite boulder and manhole cover are the fan-jammers): fridge, mannequin, toilet, cart, office chair, couch, grandfather clock, upright piano, pool flamingo, vending machine, clawfoot tub, giant teddy, disco ball, inflatable tube man
 js/prompt.js     the object-design prompt (shared with the Worker)
 js/fracture.js   convex-chunk shattering
