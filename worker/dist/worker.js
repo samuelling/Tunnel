@@ -104,12 +104,18 @@ function corsHeaders(origin, ok) {
     "Vary": "Origin"
   };
 }
-var cfg = (env) => ({
-  pool: +env.GEN_POOL_PER_HOUR || 40,
-  dayCap: +env.GEN_PER_DAY || 150,
-  perPerson: +env.GEN_PER_HOUR || 20,
-  fuel: +env.FUEL_PER_DAY || 600
-});
+var boosted = (env, now = Date.now()) => !!env.BOOST_UNTIL && now < Date.parse(env.BOOST_UNTIL);
+var cfg = (env, now = Date.now()) => {
+  const b = boosted(env, now);
+  const pick = (boost, reg, dflt) => +(b && env[boost]) || +env[reg] || dflt;
+  return {
+    pool: pick("BOOST_POOL_PER_HOUR", "GEN_POOL_PER_HOUR", 40),
+    dayCap: pick("BOOST_PER_DAY", "GEN_PER_DAY", 150),
+    perPerson: pick("BOOST_PER_HOUR", "GEN_PER_HOUR", 20),
+    fuel: pick("BOOST_FUEL_PER_DAY", "FUEL_PER_DAY", 600),
+    boostUntil: b ? env.BOOST_UNTIL : null
+  };
+};
 function etParts(t) {
   const p = Object.fromEntries(new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" }).formatToParts(new Date(t)).map((x) => [x.type, x.value]));
   return { date: `${p.year}-${p.month}-${p.day}`, h: +p.hour, m: +p.minute, s: +p.second };
@@ -188,7 +194,7 @@ async function shelfItem(env, ctx, k) {
 }
 var readFabText = (t) => ({ day: "", dayUsed: 0, hour: 0, hourUsed: 0, lastJam: 0, shelf: [], ...JSON.parse(t) });
 function status(fab, env, now) {
-  const c = cfg(env);
+  const c = cfg(env, now);
   roll(fab, now);
   const dayLeft = Math.max(0, c.dayCap - fab.dayUsed), poolLeft = Math.max(0, Math.min(c.pool - fab.hourUsed, dayLeft));
   return {
@@ -198,6 +204,7 @@ function status(fab, env, now) {
     dayLeft,
     perPerson: c.perPerson,
     open: dayLeft > 0,
+    boostUntil: c.boostUntil,
     excuse: EXCUSES[hashStr(fab.day) % EXCUSES.length],
     opensIn: opensIn(now),
     resetsIn: 36e5 - now % 36e5,
@@ -275,7 +282,7 @@ function linesSince(text, since) {
   return out.reverse();
 }
 function fuelStatus(head, env, now) {
-  const cap = cfg(env).fuel, used = head.fuelDay === fuelDay(now) ? head.fuelUsed : 0;
+  const cap = cfg(env, now).fuel, used = head.fuelDay === fuelDay(now) ? head.fuelUsed : 0;
   return { fuel: Math.max(0, 1 - used / cap), fuelLeft: Math.max(0, cap - used), fuelCap: cap, refuelIn: refuelIn(now) };
 }
 var worker_default = {
@@ -421,7 +428,7 @@ async function drops(req, env, url, ok, origin, ctx) {
   }
   if (req.method !== "POST") return new Response("{}", { status: 405, headers });
   if (!ok) return new Response(JSON.stringify({ error: "origin not allowed" }), { status: 403, headers });
-  const today = fuelDay(now), cap = cfg(env).fuel;
+  const today = fuelDay(now), cap = cfg(env, now).fuel;
   const noFuel = () => new Response(JSON.stringify({ error: "out of fuel", refuelIn: refuelIn(now) }), { status: 503, headers: { ...headers, "x-portal": "out-of-fuel" } });
   const seen = await caches.default.match(new Request(HEAD_KEY));
   if (seen) {

@@ -50,12 +50,20 @@ function corsHeaders(origin, ok) {
     'Vary': 'Origin',
   };
 }
-const cfg = (env) => ({
-  pool: +env.GEN_POOL_PER_HOUR || 40,
-  dayCap: +env.GEN_PER_DAY || 150,
-  perPerson: +env.GEN_PER_HOUR || 20,
-  fuel: +env.FUEL_PER_DAY || 600,
-});
+// Demo boost: until BOOST_UNTIL (an ISO time) the BOOST_* numbers replace the regular caps, then
+// everything falls back by itself, no redeploy needed. Leave BOOST_UNTIL unset for regular caps.
+const boosted = (env, now = Date.now()) => !!env.BOOST_UNTIL && now < Date.parse(env.BOOST_UNTIL);
+const cfg = (env, now = Date.now()) => {
+  const b = boosted(env, now);
+  const pick = (boost, reg, dflt) => +(b && env[boost]) || +env[reg] || dflt;
+  return {
+    pool: pick('BOOST_POOL_PER_HOUR', 'GEN_POOL_PER_HOUR', 40),
+    dayCap: pick('BOOST_PER_DAY', 'GEN_PER_DAY', 150),
+    perPerson: pick('BOOST_PER_HOUR', 'GEN_PER_HOUR', 20),
+    fuel: pick('BOOST_FUEL_PER_DAY', 'FUEL_PER_DAY', 600),
+    boostUntil: b ? env.BOOST_UNTIL : null,
+  };
+};
 
 // ---- clocks: the shop day turns over at 9 AM Eastern; the fuel day at 00:00 UTC
 function etParts(t) {
@@ -115,9 +123,9 @@ async function shelfItem(env, ctx, k) {
 }
 const readFabText = (t) => ({ day: '', dayUsed: 0, hour: 0, hourUsed: 0, lastJam: 0, shelf: [], ...JSON.parse(t) });
 function status(fab, env, now) {
-  const c = cfg(env); roll(fab, now);
+  const c = cfg(env, now); roll(fab, now);
   const dayLeft = Math.max(0, c.dayCap - fab.dayUsed), poolLeft = Math.max(0, Math.min(c.pool - fab.hourUsed, dayLeft));
-  return { pool: c.pool, poolLeft, dayCap: c.dayCap, dayLeft, perPerson: c.perPerson, open: dayLeft > 0,
+  return { pool: c.pool, poolLeft, dayCap: c.dayCap, dayLeft, perPerson: c.perPerson, open: dayLeft > 0, boostUntil: c.boostUntil,
     excuse: EXCUSES[hashStr(fab.day) % EXCUSES.length], opensIn: opensIn(now), resetsIn: 3.6e6 - (now % 3.6e6),
     lastJam: fab.lastJam || 0, shelf: fab.shelf.length };
 }
@@ -188,7 +196,7 @@ function linesSince(text, since) {
   return out.reverse();
 }
 function fuelStatus(head, env, now) {
-  const cap = cfg(env).fuel, used = head.fuelDay === fuelDay(now) ? head.fuelUsed : 0;
+  const cap = cfg(env, now).fuel, used = head.fuelDay === fuelDay(now) ? head.fuelUsed : 0;
   return { fuel: Math.max(0, 1 - used / cap), fuelLeft: Math.max(0, cap - used), fuelCap: cap, refuelIn: refuelIn(now) };
 }
 
@@ -321,7 +329,7 @@ async function drops(req, env, url, ok, origin, ctx) {
   }
   if (req.method !== 'POST') return new Response('{}', { status: 405, headers });
   if (!ok) return new Response(JSON.stringify({ error: 'origin not allowed' }), { status: 403, headers });
-  const today = fuelDay(now), cap = cfg(env).fuel;
+  const today = fuelDay(now), cap = cfg(env, now).fuel;
   const noFuel = () => new Response(JSON.stringify({ error: 'out of fuel', refuelIn: refuelIn(now) }), { status: 503, headers: { ...headers, 'x-portal': 'out-of-fuel' } });
   // out of fuel, by the shared copy? say so without reading the mailbox
   const seen = await caches.default.match(new Request(HEAD_KEY));

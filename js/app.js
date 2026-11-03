@@ -1571,6 +1571,9 @@ function renderTickets() {
   }
   $('tixLeft').textContent = quota.poolLeft;
   $('tixPool').textContent = quota.pool;
+  const bu = quota.boostUntil && Date.parse(quota.boostUntil);
+  $('tixBoost').hidden = !(bu > Date.now());
+  if (bu > Date.now()) $('tixBoost').textContent = ` · ⚡ demo boost until ${new Date(bu).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`;
   $('tixLabel').textContent = empty ? 'OUT OF TICKETS' : quota.poolLeft === 1 ? 'TICKET LEFT THIS HOUR' : 'TICKETS LEFT THIS HOUR';
   const s = Math.ceil(ms / 1000);
   $('tixClock').textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;

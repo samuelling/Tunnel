@@ -66,6 +66,10 @@ There are two ways the page can reach Claude:
 - **The pile naps**: Pile Cam and World Builder back off from checking every 8 s to every 2 minutes when nothing arrives, and stop while the tab is hidden. Your own deliveries appear in Pile Cam straight away, without asking the mailbox.
 - **The safety board** by the portal: DAYS SINCE THE FAN JAMMED (shared by everyone, `POST /jam`), portal fuel, and whether the Fabricator is open. It refreshes every 5 minutes (every minute while the Fabricator dialog is open) and never in a hidden tab. In December it wears Christmas lights; during Hanukkah they turn blue (`?holiday=christmas|hanukkah|none` to preview).
 
+### Demo boost
+
+`BOOST_UNTIL` (an ISO time) plus `BOOST_POOL_PER_HOUR`, `BOOST_PER_DAY`, `BOOST_PER_HOUR` and `BOOST_FUEL_PER_DAY` replace the regular caps until that moment, then the Worker falls back to them by itself (no redeploy). The ticket sign says "⚡ demo boost until …" while it's on. Set for Matt and Sam's private demo until 17 Nov 2026, 4 PM Eastern: 150 designs an hour, 400 a day, 75 per person an hour, 3,000 deliveries a day (the account is on Workers Paid, so KV writes aren't the limit).
+
 ### Keeping the Worker cheap
 
 Every request is one Worker run, so the page and the Worker are built to make few of them and to make each one light:

@@ -3,6 +3,12 @@ main = "worker.js"
 compatibility_date = "2026-10-01"
 
 [vars]
+# Demo boost: until BOOST_UNTIL these replace the caps below, then they fall back by themselves
+BOOST_UNTIL = "2026-11-17T21:00:00Z"
+BOOST_POOL_PER_HOUR = "150"
+BOOST_PER_DAY = "400"
+BOOST_PER_HOUR = "75"
+BOOST_FUEL_PER_DAY = "3000"
 # Comma-separated list of sites allowed to call this Worker
 ALLOWED_ORIGINS = "https://samuelling.github.io"
 # Cheaper/faster alternative: "claude-haiku-5-5"
