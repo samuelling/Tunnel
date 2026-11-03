@@ -111,14 +111,14 @@ export class PileCam {
     scene.background = new THREE.Color('#8fb3d9');
     scene.fog = new THREE.Fog('#a9c3df', 260, 900);
     this.camera = new THREE.PerspectiveCamera(50, 1, 1, 3000);
-    this.camera.position.set(-40, 70, -175);
+    this.camera.position.set(0, 66, -190);   // straight on, so the heap sits in the middle and stays there as it turns
     this.controls = new OrbitControls(this.camera, canvas);
-    this.controls.target.set(40, 14, 0);
+    this.controls.target.set(0, 10, 0);       // the heap's centre
     this.controls.enableDamping = true;
     this.controls.maxPolarAngle = Math.PI * 0.49;
     this.controls.minDistance = 30; this.controls.maxDistance = 600;
     this.controls.autoRotate = true; this.controls.autoRotateSpeed = 0.35;
-    this.controls.addEventListener('start', () => { this.controls.autoRotate = false; clearTimeout(this._ar); });
+    this.controls.addEventListener('start', () => { this.controls.autoRotate = false; this.userMoved = true; clearTimeout(this._ar); });
     this.controls.addEventListener('end', () => { clearTimeout(this._ar); this._ar = setTimeout(() => { this.controls.autoRotate = true; }, 8000); });
     scene.add(new THREE.HemisphereLight('#dfeaff', '#4d5a36', 1.1));
     const sun = new THREE.DirectionalLight('#fff3dd', 2.2);
@@ -483,6 +483,14 @@ export class PileCam {
     if (!w || !h) return;
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h; this.camera.updateProjectionMatrix();
+    // until someone moves the view, back off far enough that the whole heap (about 75 m across
+    // each way) fits the panel's width: a tall narrow panel needs more distance than a wide one
+    if (!this.userMoved) {
+      const hfov = 2 * Math.atan(Math.tan(this.camera.fov * Math.PI / 360) * this.camera.aspect);
+      const dist = Math.min(560, Math.max(198, 78 / Math.tan(hfov / 2)));
+      const dir = this.camera.position.clone().sub(this.controls.target).normalize();
+      this.camera.position.copy(this.controls.target).addScaledVector(dir, dist);
+    }
   }
   start() {
     if (this.running) return;
