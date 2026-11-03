@@ -588,7 +588,7 @@ async function repairFan() {
     }
     const big = lodged.reduce((a, b) => (b.mass > a.mass ? b : a));
     bill.push(950);
-    await repairStep(`Craning out the ${big.recipe.name.toLowerCase()} (onto the payload hatch it goes)`, 1800, (k) => { if (Math.random() < 0.05) audio.hit('thunk', 800); });
+    await repairStep(`Craning out the ${big.recipe.name.toLowerCase()} (into the Portal Chute it goes)`, 1800, (k) => { if (Math.random() < 0.05) audio.hit('thunk', 800); });
   }
   for (let k = 0; k < FAN.blades; k++) {
     const d0 = bladeDmg[k];
@@ -750,15 +750,20 @@ function buildHatch() {
     hatchColliders.push(world.createCollider(RAPIER.ColliderDesc.cuboid(HATCH.lip / 2, 0.04, (R + 0.06) * Math.PI / N * 1.15)
       .setTranslation(HATCH.x - HATCH.thick - HATCH.lip / 2, (R + 0.04) * Math.cos(a), (R + 0.04) * Math.sin(a)).setRotation({ x: q.x, y: q.y, z: q.z, w: q.w }).setFriction(0.6), fixed));
   }
+  // the Portal Chute: dark steel doors with the portal's swirl and a stencil, a glowing violet rim
   const tex = (() => {
-    const cv = document.createElement('canvas'); cv.width = cv.height = 256; const c = cv.getContext('2d');
-    c.fillStyle = '#16161a'; c.fillRect(0, 0, 256, 256);
-    c.fillStyle = '#ffc21a';
-    for (let i = -256; i < 512; i += 40) { c.beginPath(); c.moveTo(i, 0); c.lineTo(i + 20, 0); c.lineTo(i + 20 - 256, 256); c.lineTo(i - 256, 256); c.fill(); }
-    const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(2, 2); return t;
+    const cv = document.createElement('canvas'); cv.width = cv.height = 512; const c = cv.getContext('2d');
+    c.fillStyle = '#17121f'; c.fillRect(0, 0, 512, 512);
+    for (let i = 0; i < 14; i++) {
+      c.strokeStyle = i % 2 ? 'rgba(64,224,255,0.35)' : 'rgba(155,77,255,0.5)'; c.lineWidth = 10 - i * 0.5;
+      c.beginPath(); for (let a = 0; a < 6.3; a += 0.05) { const r = 18 + a * 34 + i * 5; const x = 256 + Math.cos(a + i * 0.45) * r, y = 256 + Math.sin(a + i * 0.45) * r; a ? c.lineTo(x, y) : c.moveTo(x, y); } c.stroke();
+    }
+    c.fillStyle = 'rgba(233,216,255,0.85)'; c.font = '900 46px Impact, "Arial Black", sans-serif'; c.textAlign = 'center';
+    c.fillText('PORTAL CHUTE', 256, 120); c.font = '700 22px "Arial Black", sans-serif'; c.fillText('KEEP CLEAR · FLUSHES WITHOUT WARNING', 256, 410);
+    const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace; return t;
   })();
-  const mat = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.6, metalness: 0.3 });
-  const steel = new THREE.MeshStandardMaterial({ color: '#3a3f46', roughness: 0.5, metalness: 0.8, side: THREE.DoubleSide });
+  const mat = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.45, metalness: 0.5, emissive: new THREE.Color('#2b0a4a'), emissiveIntensity: 0.5 });
+  const steel = new THREE.MeshStandardMaterial({ color: '#2b2238', roughness: 0.4, metalness: 0.8, side: THREE.DoubleSide, emissive: new THREE.Color('#9b4dff'), emissiveIntensity: 0.35 });
   const g = new THREE.Group(); rig.add(g);
   for (const side of [1, -1]) {
     // half-disc whose straight edge lies on y = 0, rotated so its face normal is the tube axis
@@ -799,7 +804,7 @@ function setDoors(k) { for (const d of hatchDoors) d.pivot.rotation.z = d.side *
 function openPayloadHatch(why) {
   if (hatchState !== 'closed') return;
   if (why === 'lever') { const l = $('plLever'); l.classList.add('pulled'); setTimeout(() => l.classList.remove('pulled'), 520); }
-  if (!payloadStat.n && why === 'lever') { audio.hit('thunk', 3000); toast('The hatch is empty. Shred something first.'); return; }
+  if (!payloadStat.n && why === 'lever') { audio.hit('thunk', 3000); toast('The Portal Chute is empty. Shred something first.'); return; }
   audio.start(); audio.hit('clang', 1.5e4); setTimeout(() => audio.whoosh(40), 250);
   hatchState = 'opening'; hatchT = 0;
   drops.hold = true;
@@ -807,9 +812,9 @@ function openPayloadHatch(why) {
   thawHatch();
   for (const b of bodies) if (onHatch(b)) b.body.wakeUp();
   portal.flash(0.6);
-  if (why === 'full') toast('📦 PAYLOAD FULL! Flushing it through the portal');
-  else if (why === 'idle') toast('📦 The hatch got bored and flushed itself');
-  else toast(`📦 Hatch open: ${payloadStat.n} thing${payloadStat.n === 1 ? '' : 's'} on the way to World Builder`);
+  if (why === 'full') toast('🌀 PORTAL CHUTE FULL! Flushing it to World Builder');
+  else if (why === 'idle') toast('🌀 The Portal Chute got bored and flushed itself');
+  else toast(`🌀 FLUSH! ${payloadStat.n} thing${payloadStat.n === 1 ? '' : 's'} down the Portal Chute to World Builder`);
 }
 let hatchClock = 0;
 function hatchTick() {
@@ -842,7 +847,7 @@ function hatchTick() {
     if ((!falling && hatchT > 1.2) || hatchT > 6) {
       drops.finalizeAll();
       const d = drops.flushPayload();
-      if (d && d.payload) toast(`🌀 📦 Payload delivered: ${d.objects.length} things, ${d.pieces.length} pieces, one trip`);
+      if (d && d.payload) toast(`🌀 Delivered: ${d.objects.length} things, ${d.pieces.length} pieces, one trip down the Portal Chute`);
       hatchState = 'closing'; hatchT = 0;
     }
   } else if (hatchState === 'closing') {
@@ -855,7 +860,7 @@ function renderPayload() {
   const el = $('payload'); if (!el || el.hidden) return;
   const { n, pieces, kg } = payloadStat;
   $('plCount').textContent = n;
-  $('plSub').textContent = n ? `${n === 1 ? 'thing' : 'things'} · ${pieces} pcs · ${kg < 1 ? Math.round(kg * 1000) + ' g' : kg.toFixed(kg < 10 ? 1 : 0) + ' kg'}` : 'hatch is empty';
+  $('plSub').textContent = n ? `${n === 1 ? 'thing' : 'things'} · ${pieces} pcs · ${kg < 1 ? Math.round(kg * 1000) + ' g' : kg.toFixed(kg < 10 ? 1 : 0) + ' kg'}` : 'chute is empty';
   $('plLever').classList.toggle('idle', !n || hatchState !== 'closed');
   const full = Math.min(1, pieces / PAYLOAD_FULL.pieces);
   $('plFill').style.width = (full * 100) + '%';
@@ -896,6 +901,7 @@ function setPaneSource(src) {
       pileCam = new PileCam($('pileCanvas'), mailboxUrl());
       const stat = () => { const t = pileCam.total; $('paneStat').textContent = `${t.pieces.toLocaleString()} pieces · ${t.kg.toFixed(0)} kg so far${pileCam.napping ? ' · 💤 napping' : ''}`; };
       pileCam.onNote = stat; pileCam.onNap = stat;
+      pileCam.onBale = (n) => { if (pileCam.compacting) toast(`🗜️ The compactor squashed the Shred Pile into bale #${n}`); };
       if (!mailboxUrl()) $('paneStat').textContent = 'no mailbox set up';
     }
     pileCam.start(); pileCam.resize();
@@ -1088,7 +1094,7 @@ function buildUI() {
   $('start').onclick = () => {
     $('start').hidden = true; audio.start(); $('hatch').hidden = false; $('payload').hidden = false; $('hatch').classList.toggle('idle', !armed);
     if (rotor.setpoint === 0) { thr.value = 70; setThr(); }
-    toast(isTouch ? 'Pick something below, then pull DOWN THE HATCH! (or flick it at the tunnel)' : 'Pick something below, then pull DOWN THE HATCH! (H), or click/flick to throw it');
+    toast(isTouch ? 'Pick something below, then pull DROP IT! (or flick it at the tunnel)' : 'Pick something below, then pull DROP IT! (D), or click/flick to throw it');
   };
   // maker dialog
   $('makeGo').onclick = runMaker;
@@ -1118,8 +1124,8 @@ function buildUI() {
     if (e.target.tagName === 'INPUT') return;
     if (e.code === 'Space' && armed) { e.preventDefault(); throwArmed(renderer.domElement.clientWidth / 2, innerHeight / 2, null); }
     if (e.key === 'c') setCamera((camMode + 1) % CAMS.length);
-    if (e.key === 'h' || e.key === 'H') pullHatch();
-    if (e.key === 'o' || e.key === 'O') openPayloadHatch('lever');
+    if (e.key === 'd' || e.key === 'D' || e.key === 'h' || e.key === 'H') pullHatch();
+    if (e.key === 'f' || e.key === 'F' || e.key === 'o' || e.key === 'O') openPayloadHatch('lever');
   });
 }
 
@@ -1175,7 +1181,7 @@ function showCard(r) {
   if (compactUI()) {
     $('card').classList.add('mini');
     $('card').innerHTML = `<b>${escapeHtml(r.name)}</b> <span class="facts"><span><i>${fmtMass(m)}</i></span><span>${Lc.toFixed(1)} m</span><span>breaks at <i>${fmtE(ph.Ebreak)}</i></span>${verdictTxt ? `<span class="warn">${verdictTxt}</span>` : ''}</span>
-      <div class="hint">Pull the lever or flick the scene · tap here to hide</div>`;
+      <div class="hint">Pull DROP IT! or flick the scene · tap here to hide</div>`;
     $('card').hidden = false;
     clearTimeout(showCard.h);
     showCard.h = setTimeout(() => { $('card').hidden = true; }, 3500);
@@ -1234,12 +1240,12 @@ function physFor(rec) {
 
 const ray = new THREE.Raycaster();
 const qInv = () => rig.quaternion.clone().invert();
-// DOWN THE HATCH!: drop the selected object straight down the middle of the hopper
+// DROP IT!: drop the selected object straight down the middle of the hopper
 function pullHatch() {
   const h = $('hatch');
   if (!armed) {
     h.classList.remove('wiggle'); void h.offsetWidth; h.classList.add('wiggle');
-    toast(compactUI() ? 'Pick something from the tray first' : 'Pick something from the tray first, then pull the lever');
+    toast(compactUI() ? 'Pick something from the tray first' : 'Pick something from the tray first, then pull DROP IT!');
     return;
   }
   audio.start();
@@ -1482,6 +1488,6 @@ function addGenerated(raw) {
   return r;
 }
 
-window.tunnel = { openHatch: () => openPayloadHatch('lever'), get payload() { return payloadStat; }, get hatchState() { return hatchState; }, pile, share: () => openShare(), phys: (id) => recipePhys(recipes.find(r => r.id === id)), recipes: () => recipes, repair: () => repairFan(), get jam() { return jam; }, bladeDmg, addRecipe: addGenerated, get bodies() { return bodies; }, rotor: () => rotor, air: () => air, spawn: (id, x = -1.4) => spawnRecipe(recipes.find(r => r.id === id), new THREE.Vector3(x, (Math.random() - 0.5) * 0.6, (Math.random() - 0.5) * 0.6), new THREE.Vector3(2, 0, 0)), get drops() { return drops; }, setThrottle: (v) => { $('throttle').value = v; $('throttle').oninput(); }, setCamera, arm: (id) => arm(recipes.find(r => r.id === id)) };
+window.tunnel = { get pileCam() { return pileCam; }, openHatch: () => openPayloadHatch('lever'), get payload() { return payloadStat; }, get hatchState() { return hatchState; }, pile, share: () => openShare(), phys: (id) => recipePhys(recipes.find(r => r.id === id)), recipes: () => recipes, repair: () => repairFan(), get jam() { return jam; }, bladeDmg, addRecipe: addGenerated, get bodies() { return bodies; }, rotor: () => rotor, air: () => air, spawn: (id, x = -1.4) => spawnRecipe(recipes.find(r => r.id === id), new THREE.Vector3(x, (Math.random() - 0.5) * 0.6, (Math.random() - 0.5) * 0.6), new THREE.Vector3(2, 0, 0)), get drops() { return drops; }, setThrottle: (v) => { $('throttle').value = v; $('throttle').oninput(); }, setCamera, arm: (id) => arm(recipes.find(r => r.id === id)) };
 
 boot().catch(e => { console.error(e); fail(e.message); });

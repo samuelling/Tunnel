@@ -26,6 +26,7 @@ The HUD shows wind speed (with its Beaufort number), fan rpm, motor power, blade
 
 - Pick an object in the tray, then **flick** on the scene to throw it (or tap / press space for a gentle toss). Two fingers or right-drag to look around.
 - **🪟 Split view** (desktop): the Shred Pile beside the tunnel. **Pile Cam** is World Builder's Shred Pile ported to stand alone (`js/pilecam.js`). It reads the same mailbox, uses the same constants and seeds each drop's place from its id, so it matches Matt's pile, and your own drops fall out of its sky portal the moment they're sent. **Live World Builder** shows the real world in the pane (`?visit=shred-pile`) when one is reachable, e.g. `http://localhost:3000` on Matt's machine. Add `?split` to the URL to open in split view.
+- **DROP IT!** (or D) drops the selected object straight down the tube.
 - **📸** renders this session's pile (everything that went through the portal, heaped at the angle of repose) with a list of what went in and what it was made of. It opens the phone's share sheet (Messages, Mail), or you can save the image or send the text by email or SMS.
 - **FAN** slider is bipolar. Above the centre line (SHRED) it pulls air down onto the blades; below it (LIFT) the rotor reverses and blows air up the tube at ~65% of the forward flow, so light things levitate or get blown out the top while heavy ones sink into the blades. Centre = off. 🎥 cycles cameras (Overview, Hopper, Blades, Window, Portal, Follow). 🐢 slow motion. ⏱️ auto bullet-time right before the chop. 💨 smoke tracers. 🎲 chaos.
 
@@ -60,7 +61,7 @@ There are two ways the page can reach Claude:
 
 - **The Fabricator** (new Claude designs) keeps shop hours: a shared hourly pool (`GEN_POOL_PER_HOUR`, 40), a daily cap (`GEN_PER_DAY`, 150) after which it's **CLOSED** until 9 AM Eastern with a rotating excuse ("Claude went home."), and a personal 20 per hour counted in the visitor's browser (`GEN_PER_HOUR`). Each new design costs the Worker **one** KV write.
 - **The Warehouse**: everything ever fabricated sits on a public shelf (`GET /warehouse`), free to throw. Names are matched loosely (`objectKey()` in `js/prompt.js`): "a lava lamp", "Lava Lamps" and "the LAVA LAMP" are one object.
-- **The payload hatch**: debris collects in a tray above the portal (resting pieces are frozen into static bodies, so it costs the simulation little). **OPEN THE HATCH** (or O) sends it all as one delivery: one request and one write instead of one per object. It opens itself when full (400 pieces), after two quiet minutes, or when you leave the page.
+- **The Portal Chute**: debris collects in a tray above the portal (resting pieces are frozen into static bodies, so it costs the simulation little). pull the **FLUSH!** chain (or F) and it all goes as one delivery: one request and one write instead of one per object. It opens itself when full (400 pieces), after two quiet minutes, or when you leave the page.
 - **Portal fuel**: a daily budget of deliveries (`FUEL_PER_DAY`, 600, under Cloudflare's 1,000 free writes). When it runs out, deliveries wait in **Lost & Found** (localStorage) and go out after it refuels at 00:00 UTC.
 - **The pile naps**: Pile Cam and World Builder back off from checking every 6 s to once a minute when nothing arrives, and stop while the tab is hidden. The Worker serves readers a shared 10 s copy.
 - **The safety board** by the portal: DAYS SINCE THE FAN JAMMED (shared by everyone, `POST /jam`), portal fuel, and whether the Fabricator is open.
@@ -93,7 +94,7 @@ js/objects.js    object recipes, recipe → meshes/colliders/mass properties
 js/strength.js   breakability: material table, E_break and cutting force, blade limits
 js/outoforder.js the OUT OF ORDER sign
 js/sharepile.js  session pile → heap render + inventory → share image
-js/pilecam.js    split view: World Builder's Shred Pile, standalone, live from the mailbox
+js/pilecam.js    split view: World Builder's Shred Pile (18x debris, compactor, brick yard), standalone, live from the mailbox
 js/safetyboard.js the safety board by the portal
 js/bigstuff.js   the big stuff (bank safe, granite boulder and manhole cover are the fan-jammers): fridge, mannequin, toilet, cart, office chair, couch, grandfather clock, upright piano, pool flamingo, vending machine, clawfoot tub, giant teddy, disco ball, inflatable tube man
 js/prompt.js     the object-design prompt (shared with the Worker)

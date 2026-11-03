@@ -17,7 +17,9 @@ const REPOSE = Math.tan(38 * DEG);
 const PORTAL_ALT = 150, PORTAL_R = 28;
 const GRAV = 9.81 * 2.2;
 const POLL = 6, POLL_MAX = 60;   // the pile naps: checks back off to once a minute when nothing arrives
-const SCALE = 60;
+const SCALE = 18;                // pieces arrive big, but not instant-mountain big
+const COMPACT_AT = 32;           // heap height (m) that brings the compactor
+const BALE_SQUASH = 0.22;        // a bale keeps ~22% of the heap's loose volume
 
 function hashString(s) {
   let h = 2166136261;
@@ -107,9 +109,9 @@ export class PileCam {
     scene.background = new THREE.Color('#8fb3d9');
     scene.fog = new THREE.Fog('#a9c3df', 260, 900);
     this.camera = new THREE.PerspectiveCamera(50, 1, 1, 3000);
-    this.camera.position.set(0, 62, -165);
+    this.camera.position.set(-40, 70, -175);
     this.controls = new OrbitControls(this.camera, canvas);
-    this.controls.target.set(0, 40, 0);
+    this.controls.target.set(40, 14, 0);
     this.controls.enableDamping = true;
     this.controls.maxPolarAngle = Math.PI * 0.49;
     this.controls.minDistance = 30; this.controls.maxDistance = 600;
@@ -186,6 +188,18 @@ export class PileCam {
     this.pGeo.setAttribute('color', new THREE.BufferAttribute(this.pCol, 3));
     const points = new THREE.Points(this.pGeo, new THREE.PointsMaterial({ size: 1.6, vertexColors: true, transparent: true, opacity: 0.9, depthWrite: false }));
     points.frustumCulled = false; g.add(points); this.pNext = 0;
+    // the compactor and the brick yard
+    this.bales = []; this.baleGroup = new THREE.Group(); g.add(this.baleGroup);
+    this.colTop = [0, 0, 0, 0]; this.baleMoves = []; this.compacting = null;
+    this.heapLog = { pieces: 0, kg: 0, colors: [], drops: 0 };
+    this.press = new THREE.Group(); this.press.visible = false; g.add(this.press);
+    const pressMat = new THREE.MeshStandardMaterial({ map: canvasTexture(256, 256, (c, w, h) => {
+      c.fillStyle = '#f2b311'; c.fillRect(0, 0, w, h); c.fillStyle = '#16161a';
+      for (let i = -h; i < w; i += 48) { c.beginPath(); c.moveTo(i, 0); c.lineTo(i + 24, 0); c.lineTo(i + 24 + h, h); c.lineTo(i + h, h); c.fill(); }
+    }), roughness: 0.5, metalness: 0.4 });
+    const plate = new THREE.Mesh(new THREE.BoxGeometry(PILE_R * 1.9, 5, PILE_R * 1.9), pressMat); plate.castShadow = true; this.press.add(plate);
+    const rodMat = new THREE.MeshStandardMaterial({ color: 0xd6dbe0, metalness: 0.9, roughness: 0.25 });
+    for (const [x, z] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) { const rod = new THREE.Mesh(new THREE.CylinderGeometry(3, 3, 300, 16), rodMat); rod.position.set(x * PILE_R * 0.7, 152.5, z * PILE_R * 0.7); this.press.add(rod); }
     this.drawBoard();
   }
 
@@ -230,6 +244,7 @@ export class PileCam {
       this.deposit(x, z, pg.volume, pg.radius);
     }
     this.addMerged(geos); this.note(d);
+    this.logHeap(d); this.maybeCompact(false);
   }
   addMerged(geos) {
     if (!geos.length) return;
@@ -260,7 +275,97 @@ export class PileCam {
     });
     c.textAlign = 'right'; c.font = '700 26px "Arial Black", sans-serif';
     c.fillText(`${this.total.pieces.toLocaleString()} PIECES · ${this.total.kg.toFixed(1)} KG OF REAL-WORLD MASS`, w - 50, h - 40);
+    c.textAlign = 'left';
+    const nb = this.bales ? this.bales.length : 0;
+    const tags = [nb ? `${nb} BALE${nb === 1 ? '' : 'S'} COMPACTED` : '', this.napping ? '💤 NAPPING' : ''].filter(Boolean);
+    if (tags.length) c.fillText(tags.join(' · '), 50, h - 40);
     this.board.needsUpdate = true;
+  }
+
+  // ---- the compactor: a tall heap gets squashed into a bale, stacked in the brick yard
+  heapMax() { let m = 0; for (const v of this.H) if (v > m) m = v; return m; }
+  heapVolume() { let v = 0; for (const x of this.H) v += x; return v * CELL * CELL; }
+  logHeap(d) {
+    const L = this.heapLog; L.pieces += d.pieces.length; L.kg += d.object?.mass || 0; L.drops++;
+    for (const c of d.colors || []) if (!L.colors.includes(c)) L.colors.push(c);
+  }
+  takeHeap() {
+    const L = this.heapLog, info = { volume: this.heapVolume(), pieces: L.pieces, kg: L.kg, colors: L.colors.slice(0, 8), drops: L.drops };
+    this.heapLog = { pieces: 0, kg: 0, colors: [], drops: 0 };
+    return info;
+  }
+  clearHeap() {
+    this.H.fill(0);
+    for (const m of [...this.pileGroup.children]) { if (this.falling.some((p) => p.mesh === m)) continue; this.pileGroup.remove(m); m.geometry.dispose(); }
+    this.pileGroup.scale.y = 1;
+  }
+  baleSlot(col) { return [[PILE_R + 34, -22], [PILE_R + 34, 22], [PILE_R + 78, -22], [PILE_R + 78, 22]][col]; }
+  addBale(info, waitAtCentre) {
+    const n = this.bales.length + 1;
+    const side = THREE.MathUtils.clamp(Math.cbrt(info.volume * BALE_SQUASH), 6, 40);
+    const col = (n - 1) % 4, [bx, bz] = this.baleSlot(col);
+    const y = this.colTop[col] + side / 2; this.colTop[col] += side;
+    const tex = canvasTexture(256, 256, (c, w, h) => {
+      c.fillStyle = '#2a2622'; c.fillRect(0, 0, w, h);
+      const cols = info.colors.length ? info.colors : ['#888888', '#aa8866', '#666666'];
+      const rnd = mulberry32(n * 7919 + 13);
+      for (let i = 0; i < 420; i++) {
+        c.fillStyle = cols[Math.floor(rnd() * cols.length)]; c.globalAlpha = 0.55 + rnd() * 0.45;
+        const x = rnd() * w, yy = rnd() * h, bw = 6 + rnd() * 30, bh = 3 + rnd() * 10;
+        c.save(); c.translate(x, yy); c.rotate((rnd() - 0.5) * 0.7); c.fillRect(-bw / 2, -bh / 2, bw, bh); c.restore();
+      }
+      c.globalAlpha = 1; c.fillStyle = '#15171a';
+      for (const yy of [0.3, 0.7]) c.fillRect(0, h * yy - 4, w, 8);
+      c.fillStyle = '#f2b311'; c.fillRect(w - 92, h - 40, 84, 30);
+      c.fillStyle = '#111'; c.font = '900 20px Impact, sans-serif'; c.fillText(`BALE ${n}`, w - 86, h - 18);
+    });
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(side, side, side), new THREE.MeshStandardMaterial({ map: tex, roughness: 0.85, metalness: 0.15 }));
+    mesh.castShadow = mesh.receiveShadow = true; mesh.rotation.y = (mulberry32(n)() - 0.5) * 0.25;
+    this.baleGroup.add(mesh);
+    const target = new THREE.Vector3(bx, y, bz);
+    if (waitAtCentre) mesh.position.set(0, side / 2, 0); else mesh.position.copy(target);
+    this.bales.push({ n, side, target, ...info });
+    return mesh;
+  }
+  maybeCompact(animate) {
+    if (this.compacting || this.heapMax() < COMPACT_AT) return;
+    if (!animate) { const info = this.takeHeap(); this.clearHeap(); this.addBale(info, false); this.onBale?.(this.bales.length); return; }
+    this.compactNow();
+  }
+  compactNow() {
+    if (this.compacting) return;
+    const top = Math.max(this.heapMax(), 8);
+    this.compacting = { t: 0, top };
+    this.press.visible = true; this.press.position.y = top + 90;
+  }
+  stepCompactor(dt) {
+    for (let i = this.baleMoves.length - 1; i >= 0; i--) {
+      const m = this.baleMoves[i]; m.t = Math.min(1, m.t + dt / 2.5);
+      const e = m.t * m.t * (3 - 2 * m.t);
+      m.mesh.position.lerpVectors(m.from, m.to, e); m.mesh.position.y += Math.sin(e * Math.PI) * 25;
+      if (m.t >= 1) this.baleMoves.splice(i, 1);
+    }
+    const C = this.compacting; if (!C) return;
+    C.t += dt;
+    if (C.t < 2.6) {
+      const k = C.t / 2.6, y = (C.top + 90) * (1 - k * k) + 2.5 * k * k;
+      this.press.position.y = y;
+      this.pileGroup.scale.y = THREE.MathUtils.clamp((y - 2.5) / C.top, 0.08, 1);
+    } else if (!C.done) {
+      C.done = true;
+      const info = this.takeHeap(); this.clearHeap();
+      C.bale = this.addBale(info, true);
+      for (let k = 0; k < 140; k++) { const a = Math.random() * 6.283, r = Math.random() * PILE_R * 0.8; this.emitP(Math.cos(a) * r, 2, Math.sin(a) * r, Math.cos(a) * 14, 6 + Math.random() * 10, Math.sin(a) * 14, '#8a7a68', 2 + Math.random() * 2); }
+      this.drawBoard(); this.onBale?.(this.bales.length);
+    } else if (C.t < 5) {
+      const k = (C.t - 3) / 2;
+      if (k > 0) this.press.position.y = 2.5 + k * k * (C.top + 120);
+    } else {
+      this.press.visible = false;
+      const b = this.bales[this.bales.length - 1];
+      this.baleMoves.push({ mesh: C.bale, from: C.bale.position.clone(), to: b.target, t: 0 });
+      this.compacting = null;
+    }
   }
 
   // ---- arrivals
@@ -270,7 +375,7 @@ export class PileCam {
     this.seen.add(key);
     this.lastAt = Math.max(this.lastAt, d.at || 0);
     this.setPace(POLL);
-    this.note(d); this.drawBoard();
+    this.note(d); this.logHeap(d); this.drawBoard();
     this.uniforms.uPulse.value = 1.5;
     const rng = mulberry32(hashString(d.id || key));
     this.pending.set(key, { geos: [], left: 0 });
@@ -311,7 +416,7 @@ export class PileCam {
         const pend = this.pending.get(p.key);
         m.updateMatrix(); pend.geos.push(m.geometry.clone().applyMatrix4(m.matrix));
         this.pileGroup.remove(m); m.geometry.dispose();
-        if (--pend.left <= 0 && !this.arriving.some((a) => a.key === p.key)) { this.addMerged(pend.geos); this.pending.delete(p.key); }
+        if (--pend.left <= 0 && !this.arriving.some((a) => a.key === p.key)) { this.addMerged(pend.geos); this.pending.delete(p.key); this.maybeCompact(true); }
       }
     }
   }
@@ -367,7 +472,7 @@ export class PileCam {
   setPace(sec) {
     this.pollEvery = sec;
     const nap = sec >= 30;
-    if (nap !== this.napping) { this.napping = nap; this.onNap?.(); }
+    if (nap !== this.napping) { this.napping = nap; this.onNap?.(); this.drawBoard(); }
   }
   resize() {
     const w = this.canvas.clientWidth, h = this.canvas.clientHeight;
@@ -394,6 +499,7 @@ export class PileCam {
       if (this.pollClock >= this.pollEvery && !document.hidden) { this.pollClock = 0; this.poll(); }
       if (this.arriving.length) this.emerge(dt);
       if (this.falling.length) this.fall(dt);
+      this.stepCompactor(dt);
       this.stepParticles(dt);
       this.controls.update();
       this.renderer.render(this.scene, this.camera);

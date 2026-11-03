@@ -261,3 +261,15 @@ body.split #hatch { right: calc(14px + var(--paneW)); }
 .whList button:hover, .whList button.match { border-color: #1f7a3a; box-shadow: 0 0 0 2px rgba(31,122,58,0.5); }
 .whList .none { color: var(--m); font-size: 12px; }
 #payload .plLost { font: 600 9px var(--mono); color: #ffb347; text-align: center; margin: -2px 0 4px; }
+
+/* the Portal Chute's flush chain (not a lever: it's a different thing) */
+#payload { border-color: rgba(155,77,255,0.55); box-shadow: 0 0 22px rgba(155,77,255,0.25); }
+#payload .plHead { color: #c9a6ff; }
+#payload .plBar i { background: linear-gradient(90deg, #40e0ff, #9b4dff); }
+.chain { display: flex; flex-direction: column; align-items: center; background: none; border: none; padding: 0; cursor: pointer; -webkit-tap-highlight-color: transparent; transition: transform .16s cubic-bezier(.3,1.8,.5,1); }
+.chain .links { width: 10px; height: 52px; background: repeating-linear-gradient(180deg, transparent 0 2px, #c9ced6 2px 9px, #6f7680 9px 10px, transparent 10px 12px); border-radius: 5px; box-shadow: 0 0 0 1px rgba(0,0,0,0.4) inset; }
+.chain .handle { width: 22px; height: 40px; margin-top: -2px; border-radius: 11px; background: linear-gradient(90deg, #4a1d80, #9b4dff 45%, #3a1466); box-shadow: 0 4px 10px rgba(0,0,0,0.5), 0 0 14px rgba(155,77,255,0.6), inset 0 0 0 2px rgba(255,255,255,0.15); }
+.chain .lbl { margin-top: 6px; font: 22px/1 var(--disp); color: #c9a6ff; letter-spacing: 0.06em; text-shadow: 0 0 10px rgba(155,77,255,0.8), 0 2px 6px #000; }
+.chain.pulled { transform: translateY(16px); }
+.chain.idle { opacity: 0.55; } .chain.idle .lbl { color: var(--m); text-shadow: none; }
+@media (max-width: 700px) { .chain .links { height: 40px; } .chain .handle { height: 32px; } .chain .lbl { font-size: 18px; } }
