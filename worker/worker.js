@@ -38,6 +38,7 @@ export default {
       if (!success) return reply('Easy there — too many objects. Try again in a minute.', 429);
     }
 
+    if (!env.ANTHROPIC_API_KEY) return reply('“Type anything” isn’t switched on yet: the Worker has no Claude API key. The built-in objects all work.', 501);
     let what;
     try { what = String((await req.json()).object || '').replace(/\s+/g, ' ').trim().slice(0, 60); } catch (e) { return reply('bad request', 400); }
     if (!what) return reply('say what to shred', 400);

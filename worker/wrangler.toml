@@ -18,4 +18,4 @@ simple = { limit = 6, period = 60 }
 # then paste the id it prints here.
 [[kv_namespaces]]
 binding = "DROPS"
-id = "PASTE_KV_NAMESPACE_ID_HERE"
+id = "1911f17202244afeb8cc1726ae34e3f7"
