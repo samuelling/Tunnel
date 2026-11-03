@@ -427,6 +427,7 @@ async function stats(req, env, ctx, url, now) {
     deliveries: Object.entries(dropsByDay).map(([day, n]) => ({ day, n })).sort((a, b) => a.day < b.day ? -1 : 1),
     shop: { ...status(fab, env, now), shelfItems: fab.shelf.length, tokens: fab.tokens || null, model: env.MODEL || 'claude-sonnet-5-5' },
     portal: { ...fuelStatus(head, env, now), mailboxDrops: Math.max(0, pile.split('\n').length - 1), mailboxBytes: pile.length },
+    cloudflare: await cfUsage(env, ctx, now),
   };
   const text = JSON.stringify(out);
   ctx.waitUntil(caches.default.put(key, new Response(text, { headers: { 'cache-control': 'max-age=60' } })));
@@ -486,4 +487,43 @@ export class Stats {
     }
     return new Response('not found', { status: 404 });
   }
+}
+
+// ---------------------------------------------------------------- Cloudflare's own meter
+// What Cloudflare counts against the plan, read from its analytics API with a read-only token
+// (secret CF_ANALYTICS_TOKEN, "Account Analytics: Read"). Cached for 5 minutes. Without the
+// token this is null and the dashboard says how to connect it.
+const CF_ACCOUNT = '96a47d716e62329d25d52265c88678e5', CF_KV = '1911f17202244afeb8cc1726ae34e3f7';
+const INCLUDED = { requests: 10e6, cpuMs: 30e6, kvReads: 10e6, kvWrites: 1e6, doRequests: 1e6 };   // Workers Paid, per month
+async function cfUsage(env, ctx, now) {
+  if (!env.CF_ANALYTICS_TOKEN) return { connected: false, included: INCLUDED };
+  const key = new Request(CACHE + 'cf-usage');
+  const hit = await caches.default.match(key);
+  if (hit) { try { return await hit.json(); } catch (e) { /* refetch */ } }
+  const today = new Date(now).toISOString().slice(0, 10), month = today.slice(0, 8) + '01';
+  const part = (from) => `
+    w: workersInvocationsAdaptive(limit: 100, filter: {scriptName: $script, date_geq: "${from}", date_leq: $to}) { sum { requests errors subrequests } }
+    kv: kvOperationsAdaptiveGroups(limit: 100, filter: {namespaceId: $kv, date_geq: "${from}", date_leq: $to}) { sum { requests } dimensions { actionType } }
+    d: durableObjectsInvocationsAdaptiveGroups(limit: 100, filter: {date_geq: "${from}", date_leq: $to}) { sum { requests } }`;
+  const query = `query($acct: string!, $script: string!, $kv: string!, $to: Date!) { viewer {
+    m: accounts(filter: {accountTag: $acct}) { ${part(month)} }
+    t: accounts(filter: {accountTag: $acct}) { ${part(today)} } } }`;
+  let out;
+  try {
+    const r = await fetch('https://api.cloudflare.com/client/v4/graphql', {
+      method: 'POST', headers: { authorization: 'Bearer ' + env.CF_ANALYTICS_TOKEN, 'content-type': 'application/json' },
+      body: JSON.stringify({ query, variables: { acct: env.CF_ACCOUNT_ID || CF_ACCOUNT, script: env.CF_SCRIPT || 'tunnel-claude', kv: env.CF_KV_ID || CF_KV, to: today } }),
+    });
+    const j = await r.json();
+    if (j.errors?.length || !j.data) throw new Error(j.errors?.[0]?.message || 'no data');
+    const sum = (a) => {
+      const acc = a?.[0] || {}, kv = (t) => (acc.kv || []).filter(x => x.dimensions.actionType === t).reduce((n, x) => n + x.sum.requests, 0);
+      return { requests: (acc.w || []).reduce((n, x) => n + x.sum.requests, 0), errors: (acc.w || []).reduce((n, x) => n + x.sum.errors, 0),
+        subrequests: (acc.w || []).reduce((n, x) => n + x.sum.subrequests, 0), kvReads: kv('read'), kvWrites: kv('write'),
+        doRequests: (acc.d || []).reduce((n, x) => n + x.sum.requests, 0) };
+    };
+    out = { connected: true, at: now, month: sum(j.data.viewer.m), today: sum(j.data.viewer.t), since: month, included: INCLUDED };
+  } catch (e) { out = { connected: true, error: String(e.message || e).slice(0, 160), included: INCLUDED }; }
+  ctx.waitUntil(caches.default.put(key, new Response(JSON.stringify(out), { headers: { 'cache-control': `max-age=${out.error ? 60 : 300}` } })));
+  return out;
 }

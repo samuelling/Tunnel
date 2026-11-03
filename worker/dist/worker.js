@@ -549,7 +549,8 @@ async function stats(req, env, ctx, url, now) {
     designs: Object.entries(designsByDay).map(([day, n]) => ({ day, n })).sort((a, b) => a.day < b.day ? -1 : 1),
     deliveries: Object.entries(dropsByDay).map(([day, n]) => ({ day, n })).sort((a, b) => a.day < b.day ? -1 : 1),
     shop: { ...status(fab, env, now), shelfItems: fab.shelf.length, tokens: fab.tokens || null, model: env.MODEL || "claude-sonnet-5-5" },
-    portal: { ...fuelStatus(head, env, now), mailboxDrops: Math.max(0, pile.split("\n").length - 1), mailboxBytes: pile.length }
+    portal: { ...fuelStatus(head, env, now), mailboxDrops: Math.max(0, pile.split("\n").length - 1), mailboxBytes: pile.length },
+    cloudflare: await cfUsage(env, ctx, now)
   };
   const text = JSON.stringify(out);
   ctx.waitUntil(caches.default.put(key, new Response(text, { headers: { "cache-control": "max-age=60" } })));
@@ -624,6 +625,54 @@ var Stats = class {
     return new Response("not found", { status: 404 });
   }
 };
+var CF_ACCOUNT = "96a47d716e62329d25d52265c88678e5";
+var CF_KV = "1911f17202244afeb8cc1726ae34e3f7";
+var INCLUDED = { requests: 1e7, cpuMs: 3e7, kvReads: 1e7, kvWrites: 1e6, doRequests: 1e6 };
+async function cfUsage(env, ctx, now) {
+  if (!env.CF_ANALYTICS_TOKEN) return { connected: false, included: INCLUDED };
+  const key = new Request(CACHE + "cf-usage");
+  const hit2 = await caches.default.match(key);
+  if (hit2) {
+    try {
+      return await hit2.json();
+    } catch (e) {
+    }
+  }
+  const today = new Date(now).toISOString().slice(0, 10), month = today.slice(0, 8) + "01";
+  const part = (from) => `
+    w: workersInvocationsAdaptive(limit: 100, filter: {scriptName: $script, date_geq: "${from}", date_leq: $to}) { sum { requests errors subrequests } }
+    kv: kvOperationsAdaptiveGroups(limit: 100, filter: {namespaceId: $kv, date_geq: "${from}", date_leq: $to}) { sum { requests } dimensions { actionType } }
+    d: durableObjectsInvocationsAdaptiveGroups(limit: 100, filter: {date_geq: "${from}", date_leq: $to}) { sum { requests } }`;
+  const query = `query($acct: string!, $script: string!, $kv: string!, $to: Date!) { viewer {
+    m: accounts(filter: {accountTag: $acct}) { ${part(month)} }
+    t: accounts(filter: {accountTag: $acct}) { ${part(today)} } } }`;
+  let out;
+  try {
+    const r = await fetch("https://api.cloudflare.com/client/v4/graphql", {
+      method: "POST",
+      headers: { authorization: "Bearer " + env.CF_ANALYTICS_TOKEN, "content-type": "application/json" },
+      body: JSON.stringify({ query, variables: { acct: env.CF_ACCOUNT_ID || CF_ACCOUNT, script: env.CF_SCRIPT || "tunnel-claude", kv: env.CF_KV_ID || CF_KV, to: today } })
+    });
+    const j = await r.json();
+    if (j.errors?.length || !j.data) throw new Error(j.errors?.[0]?.message || "no data");
+    const sum = (a) => {
+      const acc = a?.[0] || {}, kv = (t) => (acc.kv || []).filter((x) => x.dimensions.actionType === t).reduce((n, x) => n + x.sum.requests, 0);
+      return {
+        requests: (acc.w || []).reduce((n, x) => n + x.sum.requests, 0),
+        errors: (acc.w || []).reduce((n, x) => n + x.sum.errors, 0),
+        subrequests: (acc.w || []).reduce((n, x) => n + x.sum.subrequests, 0),
+        kvReads: kv("read"),
+        kvWrites: kv("write"),
+        doRequests: (acc.d || []).reduce((n, x) => n + x.sum.requests, 0)
+      };
+    };
+    out = { connected: true, at: now, month: sum(j.data.viewer.m), today: sum(j.data.viewer.t), since: month, included: INCLUDED };
+  } catch (e) {
+    out = { connected: true, error: String(e.message || e).slice(0, 160), included: INCLUDED };
+  }
+  ctx.waitUntil(caches.default.put(key, new Response(JSON.stringify(out), { headers: { "cache-control": `max-age=${out.error ? 60 : 300}` } })));
+  return out;
+}
 export {
   Stats,
   worker_default as default

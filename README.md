@@ -128,6 +128,8 @@ lab/             the original 2D lattice-Boltzmann wind tunnel
 
 **[samuelling.github.io/Tunnel/stats.html](https://samuelling.github.io/Tunnel/stats.html)** shows visits and visitors per day, how many pressed start, time per visit, objects thrown (and which), blend/survive/jam counts, flushes, new designs, deliveries to World Builder, devices, countries, referring sites, and the Fabricator's tickets, tokens and portal fuel right now. Pick 7, 30, 90 days or a year; it refreshes every minute.
 
+At the top, two **odometers**: the Claude meter (tokens spent on designs, dollars at Sonnet 5.5 prices, tokens per design) and the Cloudflare meter (Worker requests, KV writes and reads, Durable Object requests this month, each against what Workers Paid includes). The Cloudflare numbers come from Cloudflare's analytics API through the Worker, which needs a read-only token as the secret `CF_ANALYTICS_TOKEN` (template "Read analytics and logs"); they're cached 5 minutes.
+
 The page sends anonymous counts (`js/stats.js`): one small hello when it opens and its running totals when the tab is hidden or closed (`sendBeacon`, text/plain). No names, IPs or anything typed: a random visitor id in the browser, a random visit id, device kind, country (Cloudflare's), the referring site and play counts. Do Not Track / Global Privacy Control turn it off. The Worker keeps them in a SQLite-backed Durable Object (`Stats`, binding `STATS`), so they cost no KV writes; `GET /stats` puts them together with designs (from the Warehouse), deliveries (from the mailbox) and the token tally, cached for a minute.
 
 ### Little things

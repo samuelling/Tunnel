@@ -65,6 +65,29 @@
   th { color: var(--text-muted); font-weight: 700; }
   .tablewrap { overflow-x: auto; }
   .note { color: var(--text-muted); font-size: 12px; margin-top: 18px; max-width: 760px; }
+
+  /* ---- odometers: rolling number wheels, like a car's mileage */
+  .meters { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; margin-bottom: 14px; }
+  .meterCard { background: linear-gradient(180deg, #1b1e24, #121418); border: 1px solid var(--line); border-radius: 16px; padding: 14px 16px 14px; }
+  .meterCard h2 { font: 800 13px var(--sans); letter-spacing: .08em; text-transform: uppercase; margin: 0 0 10px; }
+  .meter { display: grid; grid-template-columns: 1fr; gap: 3px; margin-bottom: 12px; }
+  .meter:last-child { margin-bottom: 0; }
+  .meter .lab { display: flex; justify-content: space-between; gap: 10px; font-size: 12px; color: var(--text-secondary); }
+  .meter .lab b { font-weight: 600; color: var(--text-primary); }
+  .odo { display: inline-flex; align-items: center; gap: 2px; padding: 5px 6px; background: #050607; border-radius: 9px; box-shadow: inset 0 2px 6px rgba(0,0,0,.9), 0 1px 0 rgba(255,255,255,.06); width: max-content; max-width: 100%; overflow: hidden; }
+  .odo .w { position: relative; width: 22px; height: 34px; overflow: hidden; border-radius: 4px; background: linear-gradient(180deg, #2a2d33 0%, #f4f2ea 18%, #ffffff 50%, #f4f2ea 82%, #2a2d33 100%); box-shadow: inset 0 0 0 1px rgba(0,0,0,.6); }
+  .odo .w.red { background: linear-gradient(180deg, #3a0c0c 0%, #d9302c 18%, #ef4a44 50%, #d9302c 82%, #3a0c0c 100%); }
+  .odo .w.red .strip span { color: #fff; }
+  .odo .strip { position: absolute; left: 0; right: 0; top: 0; transition: transform 1.6s cubic-bezier(.2,.8,.2,1); }
+  .odo .strip span { display: block; height: 34px; line-height: 34px; text-align: center; font: 700 22px var(--mono); color: #111; }
+  .odo .sep { font: 700 20px var(--mono); color: #6d6b64; padding: 0 1px; align-self: flex-end; line-height: 26px; }
+  .odo .unit { font: 700 18px var(--mono); color: #f0efec; padding: 0 5px 0 3px; }
+  .meter .bar2 { height: 6px; border-radius: 3px; background: rgba(255,255,255,.07); overflow: hidden; margin-top: 4px; }
+  .meter .bar2 i { display: block; height: 100%; background: var(--series-3); border-radius: 3px; min-width: 2px; transition: width 1.6s ease; }
+  .meter .foot { font-size: 11.5px; color: var(--text-muted); }
+  .connect { font-size: 13px; color: var(--text-secondary); }
+  .connect ol { margin: 8px 0 0 18px; padding: 0; } .connect li { margin: 3px 0; }
+  .connect code { font: 600 12px var(--mono); background: rgba(255,255,255,.07); padding: 1px 5px; border-radius: 4px; }
   .err { background: #2a1010; border: 1px solid #6b2020; color: #ffb4b4; border-radius: 12px; padding: 12px 14px; margin-bottom: 14px; }
 </style>
 </head>
@@ -79,6 +102,11 @@
     <span class="stamp" id="stamp">loading…</span>
   </header>
   <div id="err" class="err" hidden></div>
+
+  <section class="meters">
+    <div class="meterCard" id="mClaude"><h2>🧠 Claude meter</h2><div id="claudeMeters"></div></div>
+    <div class="meterCard" id="mCf"><h2>☁️ Cloudflare meter</h2><div id="cfMeters"></div></div>
+  </section>
 
   <section class="tiles" id="tiles"></section>
 
@@ -202,8 +230,79 @@ function barList(box, rows, { label = r => r.k, value = r => r.visits, color = '
 const COUNTRY = new Intl.DisplayNames(undefined, { type: 'region' });
 const countryName = (k) => { try { return k && k !== 'XX' && k !== 'T1' ? COUNTRY.of(k) : 'Unknown'; } catch (e) { return k || 'Unknown'; } };
 
+
+// ---- odometers
+const PRICE = { in: 2, out: 10, cacheWrite: 2.5, cacheRead: 0.1 };   // Claude Sonnet 5.5, $ per million tokens
+const odos = new Map();
+// a number as rolling wheels; `dec` decimals get red wheels (like a trip meter's tenths)
+function odometer(id, value, { digits = 7, dec = 0, unit = '' } = {}) {
+  let o = odos.get(id);
+  const text = Math.max(0, value).toFixed(dec).replace('.', '');
+  const n = Math.max(digits + dec, text.length);
+  if (!o || o.n !== n) {
+    const root = el('div', 'odo'); root.setAttribute('role', 'img');
+    if (unit) root.appendChild(el('span', 'unit', unit));
+    const wheels = [];
+    for (let i = 0; i < n; i++) {
+      const fromRight = n - i - 1;
+      if (i && fromRight >= dec && (fromRight - dec + 1) % 3 === 0 && fromRight !== n - 1) root.appendChild(el('span', 'sep', ','));
+      if (dec && fromRight === dec - 1) root.appendChild(el('span', 'sep', '.'));
+      const w = el('span', 'w' + (fromRight < dec ? ' red' : '')), strip = el('span', 'strip');
+      for (let d = 0; d <= 10; d++) strip.appendChild(el('span', null, String(d % 10)));
+      w.appendChild(strip); root.appendChild(w); wheels.push(strip);
+    }
+    o = { root, wheels, n }; odos.set(id, o);
+  }
+  const padded = text.padStart(n, '0');
+  o.root.setAttribute('aria-label', (unit || '') + Math.max(0, value).toFixed(dec));
+  requestAnimationFrame(() => o.wheels.forEach((strip, i) => { strip.style.transform = `translateY(${-34 * +padded[i]}px)`; }));
+  return o.root;
+}
+function meterRow(box, { id, label, right, value, opts, foot, share }) {
+  let row = box.querySelector(`[data-m="${id}"]`);
+  if (!row) {
+    row = el('div', 'meter'); row.dataset.m = id;
+    const lab = el('div', 'lab'); lab.append(el('span', null, label), el('b'));
+    row.append(lab, el('div', 'slot'));
+    if (share != null) { const b = el('div', 'bar2'); b.appendChild(el('i')); row.appendChild(b); }
+    row.appendChild(el('div', 'foot'));
+    box.appendChild(row);
+  }
+  row.querySelector('.lab b').textContent = right || '';
+  const slot = row.querySelector('.slot'), odo = odometer(id, value, opts);
+  if (slot.firstChild !== odo) slot.replaceChildren(odo);
+  if (share != null) row.querySelector('.bar2 i').style.width = Math.min(100, Math.max(0, share * 100)) + '%';
+  row.querySelector('.foot').textContent = foot || '';
+}
+function renderMeters() {
+  const tok = data.shop.tokens || { n: 0, in: 0, out: 0, cacheRead: 0, cacheWrite: 0 };
+  const all = tok.in + tok.out + tok.cacheRead + tok.cacheWrite;
+  const usd = (tok.in * PRICE.in + tok.out * PRICE.out + tok.cacheWrite * PRICE.cacheWrite + tok.cacheRead * PRICE.cacheRead) / 1e6;
+  const cb = $('claudeMeters');
+  meterRow(cb, { id: 'tok', label: 'Tokens spent on designs', right: `${fmt(tok.n)} designs`, value: all, opts: { digits: 7 },
+    foot: `${fmt(tok.out)} written by Claude · ${fmt(tok.in)} read fresh · ${fmt(tok.cacheRead)} read from cache · ${fmt(tok.cacheWrite)} cached` });
+  meterRow(cb, { id: 'usd', label: 'Spent so far', right: tok.n ? `≈ $${(usd / tok.n).toFixed(4)} a design` : '', value: usd, opts: { digits: 3, dec: 2, unit: '$' },
+    foot: `At ${data.shop.model} prices ($${PRICE.in} in · $${PRICE.out} out · $${PRICE.cacheRead} cache read per million). Counting since 3 Nov 2026.` });
+  const out = tok.n ? Math.round(tok.out / tok.n) : 0;
+  meterRow(cb, { id: 'tpd', label: 'Tokens per design', right: 'output', value: out, opts: { digits: 4 }, foot: 'what each new object costs to write' });
+  const cf = data.cloudflare, box = $('cfMeters');
+  if (!cf || !cf.connected) {
+    if (!box.querySelector('.connect')) box.replaceChildren(Object.assign(el('div', 'connect'), { innerHTML: 'Not connected yet. Cloudflare\'s own counts need a read-only analytics token on the Worker:<ol><li>dash.cloudflare.com → My Profile → <b>API Tokens</b> → Create Token → template <b>Read analytics and logs</b> → your account → Create.</li><li>Workers &amp; Pages → <b>tunnel-claude</b> → Settings → Variables and Secrets → Add: type <b>Secret</b>, name <code>CF_ANALYTICS_TOKEN</code>, paste the token → Deploy.</li></ol>' }));
+    return;
+  }
+  if (cf.error) { box.replaceChildren(el('div', 'connect', 'Cloudflare didn\'t answer: ' + cf.error)); return; }
+  box.querySelector('.connect')?.remove();
+  const m = cf.month, t = cf.today, inc = cf.included;
+  const since = new Date(cf.since + 'T12:00:00Z').toLocaleDateString(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' });
+  meterRow(box, { id: 'req', label: 'Worker requests this month', right: `${fmt(t.requests)} today`, value: m.requests, opts: { digits: 7 }, share: m.requests / inc.requests, foot: `${(100 * m.requests / inc.requests).toFixed(3)}% of the ${fmt(inc.requests)} included each month · since ${since}` });
+  meterRow(box, { id: 'kvw', label: 'Database writes this month', right: `${fmt(t.kvWrites)} today`, value: m.kvWrites, opts: { digits: 6 }, share: m.kvWrites / inc.kvWrites, foot: `${(100 * m.kvWrites / inc.kvWrites).toFixed(3)}% of ${fmt(inc.kvWrites)} included (KV: designs, deliveries, jams)` });
+  meterRow(box, { id: 'kvr', label: 'Database reads this month', right: `${fmt(t.kvReads)} today`, value: m.kvReads, opts: { digits: 7 }, share: m.kvReads / inc.kvReads, foot: `${(100 * m.kvReads / inc.kvReads).toFixed(3)}% of ${fmt(inc.kvReads)} included` });
+  meterRow(box, { id: 'dor', label: 'Stats database requests this month', right: `${fmt(t.doRequests)} today`, value: m.doRequests, opts: { digits: 6 }, share: m.doRequests / inc.doRequests, foot: `${(100 * m.doRequests / inc.doRequests).toFixed(3)}% of ${fmt(inc.doRequests)} included (Durable Objects) · Cloudflare's numbers, about 5 minutes behind` });
+}
+
 function render() {
   if (!data) return;
+  renderMeters();
   const p = data.play, t = p.totals || {}, days = dayList(data.days, data.from);
   const byDay = Object.fromEntries((p.daily || []).map(r => [r.day, r]));
   const col = (k) => days.map(d => +(byDay[d]?.[k] || 0));
