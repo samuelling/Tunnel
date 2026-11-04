@@ -361,7 +361,7 @@ async function drops(req, env, url, ok, origin, ctx) {
   const out = JSON.stringify({ v: 2, fuelDay: head.fuelDay, fuelUsed: head.fuelUsed, last: head.last }) + '\n' + lines.join('\n');
   await env.DROPS.put('recent', out);
   cachePile(ctx, out);
-  return new Response(JSON.stringify({ id: d.id, at: d.at, fuelLeft: Math.max(0, cap - head.fuelUsed) }), { status: 201, headers });
+  return new Response(JSON.stringify({ id: d.id, at: d.at, fuelLeft: Math.max(0, cap - head.fuelUsed), colo: req.cf?.colo || null }), { status: 201, headers });
 }
 
 // ---------------------------------------------------------------- usage stats

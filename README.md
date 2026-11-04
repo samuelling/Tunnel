@@ -132,6 +132,10 @@ At the top, two **odometers**: the Claude meter (tokens spent on designs, dollar
 
 The page sends anonymous counts (`js/stats.js`): one small hello when it opens and its running totals when the tab is hidden or closed (`sendBeacon`, text/plain). No names, IPs or anything typed: a random visitor id in the browser, a random visit id, device kind, country (Cloudflare's), the referring site and play counts. Do Not Track / Global Privacy Control turn it off. The Worker keeps them in a SQLite-backed Durable Object (`Stats`, binding `STATS`), so they cost no KV writes; `GET /stats` puts them together with designs (from the Warehouse), deliveries (from the mailbox) and the token tally, cached for a minute.
 
+### Ride along
+
+Turn on **🎢 RIDE ALONG** under the Portal Chute, then pull **FLUSH!**: the camera dives into the portal, and you fly down a glowing internet tube with the payload. The debris tumbling ahead of you is the real thing (the drop's own pieces); other people's traffic streams past the other way. Each ring is a real hop, captioned with real numbers where there are some: your Wi-Fi, your provider, the Cloudflare data centre that caught it (the Worker returns its code, e.g. EWR), the Worker (the drop's id), the mailbox (fuel left today), World Builder asking "anything new?", then the sky portal. You tumble out over the Shred Pile, falling with the pieces, and the camera pulls back to watch them land. **Skip ▶** or Esc jumps to the landing; **◀ Back to the Shred Hole** when you're done. The tube is `js/ride.js`; the landing is Pile Cam's `rideIn()`.
+
 ### Little things
 - **Fabricator animation**: while Claude designs a typed object, a little fabricator scans, welds and cycles through shapes, ticking off steps (reading the order → tuning the crunch) with a progress bar that creeps toward 95% and only finishes when the design arrives.
 - **🌀 Teleport** (toolbar): warns you that you're leaving the Shred Hole, flushes the Portal Chute, then sends you to World Builder at the Shred Pile (`?visit=shred-pile`). The address defaults to `WORLD_BUILDER_URL` in `js/settings.js` (`http://localhost:3000`) and can be changed in the dialog.

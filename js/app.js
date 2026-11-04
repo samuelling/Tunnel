@@ -19,6 +19,7 @@ import { PileCam } from './pilecam.js';
 import { buildSafetyBoard } from './safetyboard.js';
 import { WORKER_URL, WORLD_BUILDER_URL } from './settings.js';
 import { stats } from './stats.js';
+import { TubeRide, RIDE_SECONDS } from './ride.js';
 import { Particles } from './particles.js';
 import { Audio } from './audio.js';
 import { generateRecipe, generatorAvailable } from './claude.js';
@@ -72,9 +73,9 @@ async function boot() {
   drops = new DropCollector({
     onJudge: (root) => { verdict(root); root.done = true; },
     onNoFuel: (d, refuel) => { const h = Math.max(1, Math.round(refuel / 3.6e6)); toast(`⛽ The portal is out of fuel. ${d.object.icon} ${d.object.name} is being held in Lost & Found (it refuels in about ${h} h).`); renderPayload(); },
-    onSent: (d) => { showTally(); toast(`🌀 ${d.object.icon} ${d.object.name}: ${d.pieces.length} pieces delivered to World Builder`); if (pileCam && pileCam.running && d.id) pileCam.arrive(d, { local: true }); },
-    onParked: (d) => (showTally(), toast(`🌀 ${d.object.icon} ${d.object.name} went through the portal (World Builder link not set up yet)`)),
-    onFail: (d) => toast(`🌀 ${d.object.name} went through, but World Builder didn't answer. Kept it for later.`),
+    onSent: (d) => { rideGot(d); reserveForRide(d); showTally(); toast(`🌀 ${d.object.icon} ${d.object.name}: ${d.pieces.length} pieces delivered to World Builder`); if (pileCam && pileCam.running && d.id) pileCam.arrive(d, { local: true }); },
+    onParked: (d) => (rideGot(d), showTally(), toast(`🌀 ${d.object.icon} ${d.object.name} went through the portal (World Builder link not set up yet)`)),
+    onFail: (d) => (rideGot(d), toast(`🌀 ${d.object.name} went through, but World Builder didn't answer. Kept it for later.`)),
   });
 
   buildUI();
@@ -817,9 +818,10 @@ function openPayloadHatch(why) {
   audio.start(); audio.hit('clang', 1.5e4); setTimeout(() => audio.whoosh(40), 250);
   hatchState = 'opening'; hatchT = 0;
   stats.count('flushes');
+  if (why === 'lever' && rideOn()) startRide();
   drops.hold = true;
   // flip mode: get Pile Cam going now (so the payload is caught as it's sent), slide over once the doors are open
-  if (flipping() && !onPile && $('paneSrc').value !== 'live') { pileCam?.start(); setTimeout(() => showPile(true), 1300); }
+  if (!ride && flipping() && !onPile && $('paneSrc').value !== 'live') { pileCam?.start(); setTimeout(() => showPile(true), 1300); }
   for (const c of hatchColliders) c.setEnabled(false);
   thawHatch();
   for (const b of bodies) if (onHatch(b)) b.body.wakeUp();
@@ -888,6 +890,132 @@ function flushInstantly() {
   drops.finalizeAll();
   drops.flushPayload();
 }
+
+// ------------------------------------------------------------------------------- ride along
+// FLUSH! with RIDE ALONG on: the camera dives into the portal, you fly down the internet tube
+// with the payload (its real pieces), each ring a real hop, then tumble out of the sky portal over
+// the Shred Pile and watch it land. Skip ▶ (or Esc) jumps to the landing.
+let ride = null, tube = null;
+const rideOn = () => { try { return localStorage.getItem('shredRide') === '1'; } catch (e) { return false; } };
+function setRideToggle(on) {
+  try { localStorage.setItem('shredRide', on ? '1' : '0'); } catch (e) { /* ignore */ }
+  $('plRide').setAttribute('aria-pressed', String(on));
+  $('plRide').textContent = on ? '🎢 RIDE ALONG: ON' : '🎢 RIDE ALONG';
+}
+function rideGot(d) { if (ride && !ride.drop && (d.payload || d.pieces?.length)) { ride.drop = d; ride.gotAt = performance.now(); } }
+
+function startRide() {
+  if (ride) return;
+  const pc = ensurePileCam();
+  ride = { t0: performance.now(), drop: null, covered: false, pileWasHere: $('pileCanvas').parentNode, pileWasRunning: pc.running };
+  // Pile Cam starts now (hidden) so its heap is rebuilt by the time we arrive
+  pc.hidden = true; pc.start();
+  if (pc.first) pc.pollClock = pc.pollEvery;
+  controls.enabled = false;
+  const p0 = camera.position.clone(), t0 = controls.target.clone(), f0 = camera.fov;
+  const P = [p0, new THREE.Vector3(1.5, 6, 7), new THREE.Vector3(0.05, 1.2, 0.3)], T = [t0, new THREE.Vector3(0, 0.5, 0), new THREE.Vector3(0, -6, 0)];
+  let k = 0;
+  audio.whoosh?.(60);
+  ride.dive = (dt) => {
+    k = Math.min(1, k + dt / 1.5);
+    const e = k * k * (3 - 2 * k), seg = e < 0.55 ? 0 : 1, f = seg ? (e - 0.55) / 0.45 : e / 0.55;
+    camera.position.lerpVectors(P[seg], P[seg + 1], f);
+    camera.lookAt(new THREE.Vector3().lerpVectors(T[seg], T[seg + 1], f));
+    camera.fov = f0 + (92 - f0) * e; camera.updateProjectionMatrix();
+    if (k >= 1) { ride.dive = null; enterTube(); }
+  };
+}
+
+function enterTube() {
+  const el = $('ride');
+  el.hidden = false; el.classList.remove('pile');
+  $('rideBack').hidden = true; $('rideSkip').hidden = false;
+  flash();
+  ride.covered = true;
+  if (!tube) tube = new TubeRide($('rideCanvas'));
+  tube.resize();
+  ride.phase = 'tube'; ride.u = 0; ride.tt = 0; ride.hopShown = -1;
+  const waitStart = performance.now();
+  // wait (briefly) for the payload to be sent: its id seeds the route, its pieces fly with you
+  const go = () => {
+    if (!ride) return;
+    if (!ride.drop && performance.now() - waitStart < 4000) { caption('PACKING THE PAYLOAD…', 'Squeezing it into bytes'); requestAnimationFrame(go); return; }
+    const d = ride.drop || { pieces: [], object: { name: 'Something' } };
+    ride.hops = rideHops(d);
+    tube.build(hashSeed(d.id || String(Date.now())), ride.hops);
+    tube.setDebris(d);
+    $('rideStats').textContent = rideStatsText(d);
+    ride.last = performance.now();
+    requestAnimationFrame(tubeFrame);
+  };
+  go();
+}
+function hashSeed(s) { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return h >>> 0; }
+function rideStatsText(d) {
+  const n = d.objects?.length || 1, kb = d._wireBytes ? (d._wireBytes / 1024).toFixed(1) + ' KB' : '';
+  return [`PAYLOAD ${String(d.id || 'local').slice(0, 8).toUpperCase()}`, `${n} object${n === 1 ? '' : 's'} · ${(d.pieces?.length || 0).toLocaleString()} pieces${kb ? ' · ' + kb : ''}`].join('\n');
+}
+function rideHops(d) {
+  const colo = d._colo ? `Cloudflare ${d._colo}` : 'Cloudflare\'s edge';
+  const what = d.objects?.length ? `${d.objects.length} things` : (d.object?.name || 'your payload');
+  return [
+    { at: 0.03, hop: 'PAYLOAD AWAY', sub: `${what}, shredded and packed into bytes`, color: '#ffd23f' },
+    { at: 0.13, hop: 'HOP 1 · YOUR WI-FI', sub: 'The router has seen worse. Not much worse.', color: '#6bff9e' },
+    { at: 0.26, hop: 'HOP 2 · YOUR INTERNET PROVIDER', sub: 'Merging onto the information superhighway (left lane)', color: '#7df9ff' },
+    { at: 0.40, hop: `HOP 3 · ${colo.toUpperCase()}`, sub: d._colo ? `The nearest Cloudflare data centre (${d._colo}) catches it` : 'The nearest Cloudflare data centre catches it', color: '#ff9b3f' },
+    { at: 0.53, hop: 'HOP 4 · THE WORKER', sub: d.id ? `Stamped ${String(d.id).slice(0, 8)}, slimmed to a quarter of its size` : 'Stamped, slimmed, given a seat number', color: '#9b8cff' },
+    { at: 0.66, hop: 'HOP 5 · THE MAILBOX', sub: d._fuelLeft != null ? `Filed under "recent". Portal fuel left today: ${d._fuelLeft.toLocaleString()}` : 'Filed under "recent"', color: '#ff6bd6' },
+    { at: 0.79, hop: 'HOP 6 · WORLD BUILDER', sub: '"Anything new?" "Oh, you have no idea."', color: '#7df9ff' },
+    { at: 0.92, hop: 'THE SKY PORTAL · 150 M UP', sub: 'Brace.', color: '#ffffff' },
+  ];
+}
+function caption(hop, sub) {
+  $('rideHop').textContent = hop; $('rideSub').textContent = sub || '';
+  const c = $('rideHop').parentNode; c.classList.remove('pop'); void c.offsetWidth; c.classList.add('pop');
+}
+function flash() { const f = $('rideFlash'); f.classList.remove('go'); void f.offsetWidth; f.classList.add('go'); }
+
+function tubeFrame(now) {
+  if (!ride || ride.phase !== 'tube') return;
+  const dt = Math.min(0.05, (now - ride.last) / 1000); ride.last = now;
+  ride.tt += dt;
+  // ease in, cruise, a last burst of speed into the portal
+  const x = Math.min(1, ride.tt / RIDE_SECONDS);
+  ride.u = x < 0.12 ? 0.5 * (x / 0.12) ** 2 * 0.12 : x < 0.9 ? 0.06 + (x - 0.12) * (0.84 / 0.78) : 0.9 + (x - 0.9) * 1.0;
+  tube.uniforms.uWarp.value = Math.max(0, (x - 0.85) / 0.15);
+  const i = ride.hops.findLastIndex(h => ride.u >= h.at);
+  if (i !== ride.hopShown && i >= 0) { ride.hopShown = i; caption(ride.hops[i].hop, ride.hops[i].sub); audio.hit(i === ride.hops.length - 1 ? 'zap' : 'pop', 900); }
+  tube.frame(ride.u, ride.tt, dt);
+  if (x >= 1) { exitTube(); return; }
+  requestAnimationFrame(tubeFrame);
+}
+
+function exitTube() {
+  if (!ride || ride.phase === 'pile') return;
+  ride.phase = 'pile';
+  flash(); audio.whoosh?.(80);
+  const pc = pileCam, d = ride.drop;
+  $('ridePile').appendChild($('pileCanvas'));
+  $('ride').classList.add('pile');
+  $('rideSkip').hidden = true;
+  pc.hidden = false; if (!pc.running) pc.start();
+  requestAnimationFrame(() => pc.resize());
+  caption('THE SHRED PILE', d ? `${(d.pieces?.length || 0).toLocaleString()} pieces, landing now` : 'Here it all ends up');
+  const done = () => { $('rideBack').hidden = false; caption('DELIVERED', `${pc.total.pieces.toLocaleString()} pieces on the Shred Pile now. Look around, or head back.`); };
+  if (d && d.pieces?.length) pc.rideIn(d, done); else done();
+}
+
+function endRide() {
+  if (!ride) return;
+  const pc = pileCam, r = ride;
+  ride = null;
+  if (pc) { pc.ride = null; pc.controls.enabled = true; pc.hidden = false; r.pileWasHere.appendChild($('pileCanvas')); if (!r.pileWasRunning || !document.body.classList.contains('split') || (flipping() && !onPile)) pc.stop(); else pc.resize(); }
+  $('ride').hidden = true; $('ride').classList.remove('pile');
+  controls.enabled = true;
+  setCamera(0, true); resize();
+}
+// reserve the payload in Pile Cam as soon as its id is known, so polling doesn't land it early
+function reserveForRide(d) { if (ride && pileCam && d?.id) pileCam.reserved.add(d.id); }
 
 // ------------------------------------------------------------------------------- title screen
 // TAP TO START runs the title through a strip-cut shredder: the words are cut into vertical
@@ -1049,20 +1177,23 @@ function setupFlipSwipe() {
     x0 = null; from = null;
   }, { passive: true, capture: true });
 }
+function ensurePileCam() {
+  if (pileCam) return pileCam;
+  pileCam = new PileCam($('pileCanvas'), mailboxUrl());
+  pileCam.pollClock = -1e9;   // first read (and rebuilding the heap) waits until the pane has slid in
+  setTimeout(() => { pileCam.pollClock = pileCam.pollEvery; }, 650);
+  const stat = () => { const t = pileCam.total; $('paneStat').textContent = `${t.pieces.toLocaleString()} pieces · ${t.kg.toFixed(0)} kg so far${pileCam.napping ? ' · 💤 napping' : ''}`; };
+  pileCam.onNote = stat; pileCam.onNap = stat;
+  pileCam.onBale = (n) => { if (pileCam.compacting) toast(`🗜️ The compactor squashed the Shred Pile into bale #${n}`); };
+  if (!mailboxUrl()) $('paneStat').textContent = 'no mailbox set up';
+  return pileCam;
+}
 function setPaneSource(src) {
   const live = src === 'live';
   $('pileCanvas').hidden = live;
   if (!live) {
     $('paneFrame').hidden = true; $('paneLive').hidden = true; $('paneFrame').src = 'about:blank';
-    if (!pileCam) {
-      pileCam = new PileCam($('pileCanvas'), mailboxUrl());
-      pileCam.pollClock = -1e9;   // first read (and rebuilding the heap) waits until the pane has slid in
-      setTimeout(() => { pileCam.pollClock = pileCam.pollEvery; }, 650);
-      const stat = () => { const t = pileCam.total; $('paneStat').textContent = `${t.pieces.toLocaleString()} pieces · ${t.kg.toFixed(0)} kg so far${pileCam.napping ? ' · 💤 napping' : ''}`; };
-      pileCam.onNote = stat; pileCam.onNap = stat;
-      pileCam.onBale = (n) => { if (pileCam.compacting) toast(`🗜️ The compactor squashed the Shred Pile into bale #${n}`); };
-      if (!mailboxUrl()) $('paneStat').textContent = 'no mailbox set up';
-    }
+    ensurePileCam();
     pileCam.start(); pileCam.resize();
   } else {
     pileCam?.stop();
@@ -1181,9 +1312,10 @@ function loop(now) {
     camera.position.x += (Math.random() - 0.5) * s; camera.position.y += (Math.random() - 0.5) * s;
     shake *= Math.pow(0.02, fdt);
   }
+  if (ride && ride.dive) ride.dive(fdt);
   const cw = renderer.domElement.clientWidth;   // the split pane is gliding in or out: follow it
   if (cw !== lastCW) { lastCW = cw; resize(); }
-  if (!(pileCovers && flipping())) renderer.render(scene, camera);   // flip mode: the tunnel is off-screen
+  if (!(pileCovers && flipping()) && !(ride && ride.covered)) renderer.render(scene, camera);   // flip mode: the tunnel is off-screen
   audio.update(air.U, rotor.omega, FAN.blades, Math.abs(rotor.torque) / FAN.Tmax, ts);
   if (frames % 4 === 0) hud(ts);
 }
@@ -1251,6 +1383,12 @@ function buildUI() {
   setupToolTips();
   $('hatch').onclick = pullHatch;
   $('plLever').onclick = () => openPayloadHatch('lever');
+  setRideToggle(rideOn());
+  $('plRide').onclick = () => { setRideToggle(!rideOn()); toast(rideOn() ? '🎢 Ride along is on: pull FLUSH! and go with the payload' : 'Ride along is off'); };
+  $('rideSkip').onclick = () => { if (ride?.phase === 'tube') exitTube(); };
+  $('rideBack').onclick = endRide;
+  addEventListener('keydown', (e) => { if (!ride || e.key !== 'Escape') return; if (ride.phase === 'tube') exitTube(); else if (ride.phase === 'pile' && !$('rideBack').hidden) endRide(); });
+  addEventListener('resize', () => { if (ride?.phase === 'tube') tube?.resize(); });
   document.addEventListener('visibilitychange', () => { if (document.hidden) flushInstantly(); });
   addEventListener('pagehide', flushInstantly);
   $('btnSplit').onclick = () => setSplit(!document.body.classList.contains('split'));

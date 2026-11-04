@@ -63,11 +63,20 @@
     <span class="links"></span><span class="handle"></span>
     <span class="lbl">FLUSH!</span>
   </button>
+  <button id="plRide" class="rideTog" aria-pressed="false" title="Ride along: when you pull FLUSH!, go with the payload through the internet tubes and tumble out over the Shred Pile">🎢 RIDE ALONG</button>
 </div>
 <div id="slowBadge" hidden>SLOW-MO</div>
 <div id="verdict" hidden></div>
 <div id="card" hidden></div>
 <button id="toPile" hidden title="Look at the Shred Pile">🌀 Pile ▶</button>
+<div id="ride" hidden>
+  <canvas id="rideCanvas"></canvas>
+  <div id="ridePile"></div>
+  <div class="rideFlash" id="rideFlash"></div>
+  <div class="rideTop"><span id="rideStats"></span><button id="rideSkip">Skip ▶</button></div>
+  <div class="rideCap"><div class="rideHop" id="rideHop"></div><div class="rideSub" id="rideSub"></div></div>
+  <button id="rideBack" hidden>◀ Back to the Shred Hole</button>
+</div>
 <div id="pane">
   <div class="paneBar">
     <button id="paneBack" title="Back to the Shred Hole">◀ Hole</button>

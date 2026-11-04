@@ -180,6 +180,7 @@ export class PileCam {
     this.H = new Float32Array(CELLS * CELLS);
     this.pieceMat = new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.7, metalness: 0.05 });
     this.pileGroup = new THREE.Group(); g.add(this.pileGroup);
+    this.reserved = new Set(); this.hidden = false; this.ride = null;
     this.seen = new Set(); this.lastAt = 0; this.first = true; this.busy = false; this.pollClock = POLL; this.pollEvery = POLL; this.napping = false;
     this.falling = []; this.arriving = []; this.pending = new Map(); this.emergeClock = 0;
     // particles
@@ -460,7 +461,7 @@ export class PileCam {
         let fresh = 0;
         for (const d of got) {
           const key = d.id || `${d.at}:${d.object?.name}`;
-          if (this.seen.has(key) || !Array.isArray(d.pieces)) continue;
+          if (this.seen.has(key) || this.reserved.has(key) || !Array.isArray(d.pieces)) continue;   // a ride brings that one in itself
           fresh++;
           if (this.first) { this.seen.add(key); this.lastAt = Math.max(this.lastAt, d.at || 0); this.settleDrop(d); }
           else this.arrive(d);
@@ -513,12 +514,52 @@ export class PileCam {
       if (this.falling.length) this.fall(dt);
       this.stepCompactor(dt);
       this.stepParticles(dt);
-      this.controls.update();
-      this.renderer.render(this.scene, this.camera);
+      if (this.ride) this.stepRide(dt); else this.controls.update();
+      if (!this.hidden) this.renderer.render(this.scene, this.camera);
     };
     loop();
   }
   stop() { this.running = false; this.clock.stop(); }
+
+  // ---- "ride along": tumble out of the sky portal with a payload and watch it land.
+  // The camera falls with the debris (same gravity), then pulls back to watch the heap.
+  rideIn(d, onDone) {
+    inflateDrop(d);
+    const key = d.id || `${d.at}:${d.object?.name}`;
+    this.reserved.delete(key);
+    this.controls.enabled = false; this.controls.autoRotate = false;
+    const end = { pos: new THREE.Vector3(18, 26, -150), tgt: new THREE.Vector3(0, 18, 0) };
+    this.ride = { t: 0, onDone, end, from: null, spin: Math.random() < 0.5 ? -1 : 1 };
+    this.arrive(d, { local: true });
+    this.stepRide(0);
+  }
+  stepRide(dt) {
+    const r = this.ride, t = (r.t += dt), cam = this.camera;
+    const fallY = (tt) => PORTAL_ALT + 4 - (4 * tt + 0.5 * GRAV * tt * tt);   // where the debris is
+    const T1 = 2.4, T2 = 5.2;
+    if (t < T1) {
+      // falling with it: just above the pieces, looking down past them at the heap, a little tumble
+      const y = Math.max(46, fallY(t) + 9);
+      const wob = Math.sin(t * 2.3) * 3;
+      cam.position.set(wob, y, -6 + Math.cos(t * 1.7) * 3);
+      cam.up.set(Math.sin(t * 1.1 * r.spin) * 0.35, 1, Math.cos(t * 0.9) * 0.2).normalize();
+      cam.lookAt(0, Math.max(0, y - 60), 4);
+      cam.fov = 70 - 10 * (t / T1); cam.updateProjectionMatrix();
+    } else if (t < T2) {
+      // pull back and level out to watch it pile up
+      if (!r.from) r.from = { pos: cam.position.clone(), tgt: new THREE.Vector3(0, Math.max(0, cam.position.y - 60), 4), up: cam.up.clone() };
+      const k = (t - T1) / (T2 - T1), e = k * k * (3 - 2 * k);
+      cam.position.lerpVectors(r.from.pos, r.end.pos, e);
+      cam.up.lerpVectors(r.from.up, new THREE.Vector3(0, 1, 0), e).normalize();
+      cam.lookAt(new THREE.Vector3().lerpVectors(r.from.tgt, r.end.tgt, e));
+      cam.fov = 60 - 10 * e; cam.updateProjectionMatrix();
+    } else {
+      cam.up.set(0, 1, 0); cam.fov = 50; cam.updateProjectionMatrix();
+      this.controls.target.copy(r.end.tgt); cam.position.copy(r.end.pos);
+      this.controls.enabled = true; this.controls.autoRotate = true; this.userMoved = true;
+      const done = r.onDone; this.ride = null; done?.();
+    }
+  }
   // look up at the portal while something is coming through, then settle back
   watchArrival() {
     if (!this.controls.autoRotate) return;

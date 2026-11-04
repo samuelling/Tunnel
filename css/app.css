@@ -372,3 +372,26 @@ body.split.flip #pane .paneBar b { white-space: nowrap; overflow: hidden; text-o
 
 /* iOS zooms into any text field under 16px when it's focused; keep them at 16px on touch screens */
 @media (pointer: coarse) { input, select, textarea { font-size: 16px !important; } }
+
+/* ---------------- ride along: through the tubes with the payload */
+.rideTog { display: block; width: 100%; margin-top: 8px; background: rgba(255,255,255,.05); border: 1px solid #4a2b7a; color: #b9a3e0; border-radius: 9px; padding: 6px 4px; font: 800 11px var(--sans); letter-spacing: .06em; cursor: pointer; }
+.rideTog[aria-pressed="true"] { background: linear-gradient(90deg, #5a1fa8, #1fa8c9); color: #fff; border-color: #7df9ff; box-shadow: 0 0 14px rgba(125,249,255,.35); }
+#ride { position: fixed; inset: 0; z-index: 60; background: #05030c; }
+#ride[hidden] { display: none; }
+#rideCanvas, #ridePile canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+#ridePile { position: absolute; inset: 0; opacity: 0; transition: opacity .25s; }
+#ride.pile #ridePile { opacity: 1; }
+#ride.pile #rideCanvas { visibility: hidden; }
+.rideFlash { position: absolute; inset: 0; pointer-events: none; background: radial-gradient(circle, #fff 0%, #bdf6ff 30%, rgba(125,249,255,0) 70%); opacity: 0; }
+.rideFlash.go { animation: rideFlash .7s ease-out; }
+@keyframes rideFlash { 0% { opacity: 0; } 25% { opacity: 1; } 100% { opacity: 0; } }
+.rideTop { position: absolute; left: 0; right: 0; top: calc(10px + var(--st)); display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 0 14px; pointer-events: none; }
+#rideStats { font: 600 12px var(--mono); color: #9fe8ff; text-shadow: 0 1px 6px #000; white-space: pre-line; }
+#rideSkip, #rideBack { pointer-events: auto; background: rgba(10,8,20,.7); border: 1px solid #6b3fb0; color: #e9d8ff; border-radius: 999px; padding: 8px 14px; font: 800 13px var(--sans); cursor: pointer; backdrop-filter: blur(6px); }
+#rideBack { position: absolute; left: 50%; bottom: calc(26px + var(--sb)); transform: translateX(-50%); padding: 12px 22px; font-size: 15px; background: var(--y); color: #111; border: 0; box-shadow: 0 8px 24px rgba(0,0,0,.5); }
+#rideBack[hidden], #rideSkip[hidden] { display: none; }
+.rideCap { position: absolute; left: 50%; bottom: calc(90px + var(--sb)); transform: translateX(-50%); text-align: center; width: min(640px, 92vw); pointer-events: none; }
+.rideHop { font: clamp(26px, 6vw, 52px)/1 var(--disp); color: #7df9ff; letter-spacing: .04em; text-shadow: 0 0 18px rgba(125,249,255,.6), 0 2px 0 #000; }
+.rideSub { margin-top: 8px; font: 600 clamp(13px, 2.4vw, 16px) var(--sans); color: #f0e8ff; text-shadow: 0 1px 8px #000; }
+.rideCap.pop .rideHop { animation: ridePop .5s cubic-bezier(.2,1.6,.4,1); }
+@keyframes ridePop { from { transform: scale(.6); opacity: 0; } to { transform: scale(1); opacity: 1; } }

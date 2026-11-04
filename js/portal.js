@@ -147,6 +147,7 @@ export class DropCollector {
     let ok = false, noFuel = null;
     // slim (v2) only once the relay has said it understands it; an older relay gets v1
     const wire = JSON.stringify(this.slim ? slimDrop(drop) : drop);
+    Object.defineProperty(drop, '_wireBytes', { value: wire.length, writable: true, configurable: true });   // for the ride along (not sent)
     await Promise.all(targets.map(async (url) => {
       try {
         // text/plain keeps it a "simple" request: no CORS preflight, so one request instead of two
@@ -159,7 +160,7 @@ export class DropCollector {
         if (res.ok) {
           ok = true;
           // the relay assigns the drop's id (which seeds its place on the pile); keep it
-          if (url.includes('workers.dev') || url.endsWith('/drops')) { try { const j = await res.json(); if (j && j.id) { drop.id = j.id; drop.at = j.at || drop.at; } } catch (e) { /* not json */ } }
+          if (url.includes('workers.dev') || url.endsWith('/drops')) { try { const j = await res.json(); if (j && j.id) { drop.id = j.id; drop.at = j.at || drop.at; for (const [k, v] of [['_colo', j.colo], ['_fuelLeft', j.fuelLeft]]) Object.defineProperty(drop, k, { value: v, writable: true, configurable: true }); } } catch (e) { /* not json */ } }
         }
       } catch (e) { /* unreachable target */ }
     }));
