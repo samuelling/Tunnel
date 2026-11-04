@@ -14,7 +14,7 @@ import { CATALOG, buildObject, sanitizeRecipe, recipePrompt, MATERIALS } from '.
 import { shatterMesh, chunkMaterial } from './fracture.js';
 import { strengthOf, scaleStrength, BLADE, fmtForce } from './strength.js';
 import { buildOutOfOrder } from './outoforder.js';
-import { SessionPile, renderPileImage } from './sharepile.js';
+import { SessionPile, renderPileImage, renderPostcard, postcardNote } from './sharepile.js';
 import { PileCam } from './pilecam.js';
 import { buildSafetyBoard } from './safetyboard.js';
 import { WORKER_URL, WORLD_BUILDER_URL } from './settings.js';
@@ -712,30 +712,49 @@ async function openShare() {
   stats.count('shares');
   const box = $('shareBox');
   box.hidden = false;
-  $('shareImg').hidden = true; $('shareActs').hidden = true;
-  $('shareMsg').textContent = pile.items.length ? 'Developing your photo…' : 'Nothing shredded yet this session. Throw something in first!';
+  $('shareImg').hidden = true; $('shareActs').hidden = true; $('pcFlip').hidden = true;
+  $('shareMsg').textContent = pile.items.length ? 'Printing your postcard…' : 'Nothing shredded yet this session. Throw something in first!';
   if (!pile.items.length) return;
-  await new Promise(r => setTimeout(r, 30));
-  const site = /github\.io/.test(location.host) ? location.origin + location.pathname : 'samuelling.github.io/Tunnel';
-  let blob;
-  try { blob = await renderPileImage(pile, { url: site, bill: lifetimeBill() }); }
-  catch (e) { console.error(e); $('shareMsg').textContent = 'The camera jammed too. Try again?'; return; }
-  if (shareURL) URL.revokeObjectURL(shareURL);
-  shareURL = URL.createObjectURL(blob);
-  const file = new File([blob], 'shred-pile.png', { type: 'image/png' });
-  const text = pile.text(` ${site}`);
-  $('shareImg').src = shareURL; $('shareImg').hidden = false;
-  $('shareMsg').textContent = pile.text();
+  try { $('pcTo').value = localStorage.getItem('pcTo') || ''; } catch (e) { /* ignore */ }
+  $('pcNote').placeholder = postcardNote(pile);
   $('shareActs').hidden = false;
-  const canFiles = !!(navigator.canShare && navigator.canShare({ files: [file] }));
-  $('shareGo').hidden = !canFiles;
-  $('shareGo').onclick = async () => {
-    try { await navigator.share({ files: [file], title: 'My Shred Pile', text }); }
-    catch (e) { if (e.name !== 'AbortError') toast('Sharing is blocked here. Save the image instead.'); }
+  await printPostcard();
+  let t = 0;
+  const again = () => { clearTimeout(t); t = setTimeout(printPostcard, 450); };
+  $('pcTo').oninput = () => { try { localStorage.setItem('pcTo', $('pcTo').value); } catch (e) { /* ignore */ } again(); };
+  $('pcNote').oninput = again;
+  $('pcFlip').onclick = () => {
+    const card = $('pcCard'); card.classList.add('turning');
+    setTimeout(() => { postcard.side = postcard.side === 'front' ? 'back' : 'front'; $('shareImg').src = postcard.urls[postcard.side]; card.classList.remove('turning'); }, 330);
   };
-  const save = $('shareSave'); save.href = shareURL; save.download = 'shred-pile.png';
-  $('shareMail').href = `mailto:?subject=${encodeURIComponent('My Shred Pile')}&body=${encodeURIComponent(text + '\n\n(Picture: save it from the Shred Hole and attach it.)')}`;
-  $('shareText').href = `sms:${/iPhone|iPad|Mac/.test(navigator.userAgent) ? '&' : '?'}body=${encodeURIComponent(text)}`;
+}
+// both sides of the card, and how to send them (as pictures: Messages and Mail attach them)
+const postcard = { side: 'front', urls: {}, files: [] };
+async function printPostcard() {
+  const site = /github\.io/.test(location.host) ? location.origin + location.pathname : 'samuelling.github.io/Tunnel';
+  let pc;
+  try { pc = await renderPostcard(pile, { url: site.replace(/^https?:\/\//, ''), to: $('pcTo').value.trim(), note: $('pcNote').value.trim(), bill: lifetimeBill() }); }
+  catch (e) { console.error(e); $('shareMsg').textContent = 'The printing press jammed too. Try again?'; return; }
+  for (const u of Object.values(postcard.urls)) URL.revokeObjectURL(u);
+  postcard.urls = { front: URL.createObjectURL(pc.front), back: URL.createObjectURL(pc.back) };
+  postcard.files = [new File([pc.front], 'shred-hole-postcard.png', { type: 'image/png' }), new File([pc.back], 'shred-hole-postcard-back.png', { type: 'image/png' })];
+  $('shareImg').src = postcard.urls[postcard.side]; $('shareImg').hidden = false; $('pcFlip').hidden = false;
+  const to = $('pcTo').value.trim();
+  const text = `${to ? to + ', a' : 'A'} postcard from the Shred Hole ✉️ Make your own: ${site}`;
+  $('shareMsg').textContent = 'Tap ✉️ Send postcard to pick Messages, Mail or anything else. Both sides go as pictures.';
+  const canFiles = !!(navigator.canShare && navigator.canShare({ files: postcard.files }));
+  const canFront = !canFiles && !!(navigator.canShare && navigator.canShare({ files: postcard.files.slice(0, 1) }));
+  $('shareGo').hidden = !(canFiles || canFront);
+  $('shareGo').onclick = async () => {
+    // the card is what's shared; the line of text rides along as its caption
+    try { await navigator.share({ files: canFiles ? postcard.files : postcard.files.slice(0, 1), text }); }
+    catch (e) { if (e.name !== 'AbortError') toast('Sharing is blocked here. Save the postcard instead.'); }
+  };
+  const save = $('shareSave'); save.href = postcard.urls.front; save.download = 'shred-hole-postcard.png';
+  save.onclick = () => { setTimeout(() => { const a = document.createElement('a'); a.href = postcard.urls.back; a.download = 'shred-hole-postcard-back.png'; a.click(); }, 400); };
+  $('shareMail').href = `mailto:?subject=${encodeURIComponent('A postcard from the Shred Hole')}&body=${encodeURIComponent(text + '\n\n(Your browser can\'t attach pictures to email from a link: save the postcard first and attach both sides.)')}`;
+  if (!$('shareGo').hidden) $('shareMsg').textContent = 'Tap ✉️ Send postcard to pick Messages, Mail or anything else. Both sides go as pictures.';
+  else $('shareMsg').textContent = 'This browser can\'t hand pictures to Messages or Mail directly: Save postcard, then attach both sides.';
 }
 
 // ------------------------------------------------------------------------------- payload hatch

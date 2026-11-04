@@ -150,6 +150,10 @@ The lab's lattice-Boltzmann solver, running live on a slice through the tube's a
 
 Unlike the game's quick flow model, the air here *does* feel the object: wakes, vortex shedding, blockage. It's 2D, so a couch is really an infinitely long couch-shaped extrusion.
 
+### Postcards (📸)
+
+The share button prints a two-sided picture postcard of your session's pile: the front is the heap under big vintage *Greetings from the SHRED HOLE* lettering; the back has a handwritten note (yours, or one written from what you shredded), the list of things, what it was made of, a Shred Post stamp, a Vortex Portal postmark and a "To:" line. **✉️ Send postcard** hands both sides to the share sheet as pictures (Messages, Mail, AirDrop…) with a one-line caption and the link. Where a browser can't share pictures, **Save postcard** downloads both sides to attach yourself. (A plain `sms:` link can only carry text, which is why the old Text button sent no picture.)
+
 ### Little things
 - **Fabricator animation**: while Claude designs a typed object, a little fabricator scans, welds and cycles through shapes, ticking off steps (reading the order → tuning the crunch) with a progress bar that creeps toward 95% and only finishes when the design arrives.
 - **🌀 Teleport** (toolbar): warns you that you're leaving the Shred Hole, flushes the Portal Chute, then sends you to World Builder at the Shred Pile (`?visit=shred-pile`). The address defaults to `WORLD_BUILDER_URL` in `js/settings.js` (Matt's world at worlds.megazine.org, at the Shred Pile) and can be changed in the dialog. Split view shows that live world by default; Pile Cam is the other choice in its dropdown.

@@ -249,3 +249,152 @@ export async function renderPileImage(pile, { url, bill } = {}) {
   c.fillText((bill ? `Fan repair bill: $${bill.toLocaleString()} · ` : '') + (url || ''), 48, H - 30);
   return new Promise(res => cv.toBlob(b => res(b), 'image/png'));
 }
+
+// ---------------------------------------------------------------- postcard
+// The same pile as a two-sided picture postcard: the front is the heap under big vintage
+// "Greetings from the SHRED HOLE" lettering; the back has a handwritten note, a Shred Post
+// stamp and a Vortex Portal postmark. Both sides are PNGs, so Messages and Mail send them
+// as pictures.
+const HAND = '"Bradley Hand", "Segoe Print", "Segoe Script", "Comic Sans MS", "Chalkboard SE", cursive';
+const SERIF = 'Georgia, "Times New Roman", serif';
+const BLOCK = 'Impact, "Arial Black", "Helvetica Neue", sans-serif';
+
+function wrap(c, text, x, y, maxW, lh, maxLines = 99) {
+  const words = String(text).split(/\s+/); let line = '', n = 0;
+  for (const w of words) {
+    const t = line ? line + ' ' + w : w;
+    if (c.measureText(t).width > maxW && line) { c.fillText(line, x, y); y += lh; line = w; if (++n >= maxLines - 1) break; }
+    else line = t;
+  }
+  if (line) { c.fillText(line, x, y); y += lh; }
+  return y;
+}
+
+export function postcardNote(pile) {
+  const s = pile.summary();
+  if (!s.n) return 'Wish you were here!';
+  const names = s.list.slice(0, 4).map(e => `${e.n > 1 ? e.n + ' ' : 'a '}${e.name.toLowerCase()}${e.n > 1 && !/s$/.test(e.name) ? 's' : ''}`);
+  const more = s.list.length > 4 ? ` and ${s.list.length - 4} more things` : '';
+  const top = s.matList[0];
+  return `Wish you were here! Today I fed ${names.join(', ')}${more} into the Shred Hole. ${fmtKg(s.kg)} in all, ${s.pieces.toLocaleString()} pieces, mostly ${top ? top.label.toLowerCase() : 'stuff'}. It all went through the vortex portal.`;
+}
+
+export async function renderPostcard(pile, { url = '', to = '', note = '', bill = 0 } = {}) {
+  const W = 1800, H = 1200, s = pile.summary();
+  const toBlob = (cv) => new Promise(res => cv.toBlob(b => res(b), 'image/png'));
+  // ---- front
+  const f = document.createElement('canvas'); f.width = W; f.height = H;
+  const c = f.getContext('2d');
+  c.fillStyle = '#f3ead4'; c.fillRect(0, 0, W, H);                      // the card's cream border
+  const B = 44;
+  c.save(); roundRect(c, B, B, W - 2 * B, H - 2 * B, 18); c.clip();
+  if (s.pieces) { const h = renderHeap(pile.pieces, W - 2 * B, H - 2 * B); c.fillStyle = '#20242c'; c.fillRect(B, B, W, H); c.drawImage(h.canvas, B, B + 150); }   // heap below the lettering
+  else { c.fillStyle = '#20242c'; c.fillRect(B, B, W, H); }
+  // a warm, slightly faded print
+  const tint = c.createLinearGradient(0, B, 0, H - B); tint.addColorStop(0, 'rgba(255,170,60,0.20)'); tint.addColorStop(0.55, 'rgba(255,120,60,0.06)'); tint.addColorStop(1, 'rgba(40,10,60,0.35)');
+  c.fillStyle = tint; c.fillRect(B, B, W - 2 * B, H - 2 * B);
+  const vig = c.createRadialGradient(W / 2, H / 2, H * 0.35, W / 2, H / 2, H * 0.95); vig.addColorStop(0, 'rgba(0,0,0,0)'); vig.addColorStop(1, 'rgba(0,0,0,0.45)');
+  c.fillStyle = vig; c.fillRect(B, B, W - 2 * B, H - 2 * B);
+  c.restore();
+  // "Greetings from"
+  c.save(); c.translate(W / 2, 250); c.rotate(-0.05);
+  c.font = `italic 700 108px ${SERIF}`; c.textAlign = 'center';
+  c.lineWidth = 10; c.strokeStyle = 'rgba(20,10,30,0.85)'; c.strokeText('Greetings from the', 0, 0);
+  c.fillStyle = '#fff7e2'; c.fillText('Greetings from the', 0, 0);
+  c.restore();
+  // big block letters with a 3D extrude, sized to fit
+  const word = 'SHRED HOLE';
+  c.save(); c.textAlign = 'center'; c.textBaseline = 'alphabetic';
+  let size = 330; c.font = `900 ${size}px ${BLOCK}`;
+  while (c.measureText(word).width > W - 220 && size > 120) { size -= 10; c.font = `900 ${size}px ${BLOCK}`; }
+  const by = 300 + size * 0.95;
+  for (let d = 26; d > 0; d -= 2) { c.fillStyle = d > 4 ? '#3a1556' : '#1a0a26'; c.fillText(word, W / 2 + d, by + d); }
+  const g = c.createLinearGradient(0, by - size * 0.8, 0, by);
+  g.addColorStop(0, '#fff3a8'); g.addColorStop(0.45, '#ffc21a'); g.addColorStop(1, '#ff6a1a');
+  c.lineWidth = 14; c.strokeStyle = '#1a0a26'; c.strokeText(word, W / 2, by);
+  c.fillStyle = g; c.fillText(word, W / 2, by);
+  c.lineWidth = 4; c.strokeStyle = 'rgba(255,255,255,0.55)'; c.strokeText(word, W / 2 - 3, by - 3);
+  c.restore();
+  // ribbon
+  c.save(); c.textAlign = 'center';
+  const rw = 940, ry = by + 70;
+  c.fillStyle = '#6b2fb0'; c.beginPath(); c.moveTo(W / 2 - rw / 2 - 40, ry); c.lineTo(W / 2 + rw / 2 + 40, ry); c.lineTo(W / 2 + rw / 2, ry + 44); c.lineTo(W / 2 + rw / 2 + 40, ry + 88); c.lineTo(W / 2 - rw / 2 - 40, ry + 88); c.lineTo(W / 2 - rw / 2, ry + 44); c.closePath(); c.fill();
+  c.fillStyle = '#f3ead4'; c.font = `800 46px ${BLOCK}`; c.fillText('VORTEX PORTAL  ·  SHRED POST  ·  EST. 2026', W / 2, ry + 62);
+  c.restore();
+  // stat line at the bottom of the picture
+  c.save(); c.font = `italic 600 44px ${SERIF}`; c.textAlign = 'center';
+  const stat = s.n ? `${s.n} thing${s.n === 1 ? '' : 's'} · ${fmtKg(s.kg)} · ${s.pieces.toLocaleString()} pieces · ${pile.started.toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' })}` : 'Nothing shredded yet';
+  c.lineWidth = 8; c.strokeStyle = 'rgba(10,5,20,0.8)'; c.strokeText(stat, W / 2, H - B - 46);
+  c.fillStyle = '#fff7e2'; c.fillText(stat, W / 2, H - B - 46);
+  c.restore();
+
+  // ---- back
+  const k = document.createElement('canvas'); k.width = W; k.height = H;
+  const b = k.getContext('2d');
+  b.fillStyle = '#f6efdc'; b.fillRect(0, 0, W, H);
+  const rnd = rng(H * 7 + s.pieces);                                     // paper grain
+  for (let i = 0; i < 2600; i++) { b.fillStyle = `rgba(120,90,40,${0.02 + rnd() * 0.04})`; b.fillRect(rnd() * W, rnd() * H, 2, 2); }
+  b.strokeStyle = '#c9b48a'; b.lineWidth = 3; b.strokeRect(24, 24, W - 48, H - 48);
+  b.fillStyle = '#7a6a4a'; b.font = `700 46px ${SERIF}`; b.textAlign = 'center'; b.fillText('P O S T   C A R D', W / 2, 112); b.textAlign = 'left';
+  b.font = `500 22px ${SERIF}`; b.fillStyle = '#9a8a6a'; b.fillText('SHRED POST · CORRESPONDENCE', 70, 112);
+  b.strokeStyle = '#b9a47a'; b.lineWidth = 3; b.beginPath(); b.moveTo(W / 2, 170); b.lineTo(W / 2, H - 110); b.stroke();
+  // message (left)
+  b.fillStyle = '#23305e'; b.font = `600 50px ${HAND}`;
+  let y = wrap(b, note || postcardNote(pile), 80, 240, W / 2 - 150, 66, 11);
+  if (s.list.length) {
+    y = Math.max(y + 10, 0);
+    b.font = `600 34px ${HAND}`; b.fillStyle = '#3b4a7e';
+    for (const e of s.list.slice(0, Math.max(0, Math.min(5, Math.floor((H - 210 - y) / 46))))) { b.fillText(`${e.icon} ${e.n > 1 ? e.n + ' × ' : ''}${e.name} — ${fmtKg(e.kg)}`, 96, y); y += 46; }
+  }
+  // made-of strip along the bottom left
+  if (s.matList.length) {
+    const bx = 80, bw = W / 2 - 150, byy = H - 170;
+    b.fillStyle = '#7a6a4a'; b.font = `700 22px ${SERIF}`; b.fillText('MADE OF', bx, byy - 14);
+    roundRect(b, bx, byy, bw, 26, 8); b.save(); b.clip();
+    let x = bx; for (const m of s.matList) { const w = bw * m.frac; b.fillStyle = MAT_COLOR[m.k] || '#888'; b.fillRect(x, byy, w + 1, 26); x += w; }
+    b.restore();
+    b.fillStyle = '#5a4a2a'; b.font = `500 22px ${SERIF}`;
+    b.fillText(s.matList.slice(0, 4).map(m => `${pct(m.frac)} ${m.label}`).join(' · '), bx, byy + 58);
+  }
+  // stamp (top right)
+  const sx = W - 330, sy = 150, sw = 230, sh = 270;
+  b.save();
+  b.fillStyle = '#fffaf0'; b.fillRect(sx - 12, sy - 12, sw + 24, sh + 24);
+  b.fillStyle = '#f6efdc'; for (let i = 0; i <= 12; i++) { for (const [px, py] of [[sx - 12 + i * (sw + 24) / 12, sy - 12], [sx - 12 + i * (sw + 24) / 12, sy + sh + 12]]) { b.beginPath(); b.arc(px, py, 7, 0, 7); b.fill(); } }
+  for (let i = 0; i <= 14; i++) { for (const [px, py] of [[sx - 12, sy - 12 + i * (sh + 24) / 14], [sx + sw + 12, sy - 12 + i * (sh + 24) / 14]]) { b.beginPath(); b.arc(px, py, 7, 0, 7); b.fill(); } }
+  const sg = b.createLinearGradient(0, sy, 0, sy + sh); sg.addColorStop(0, '#3b1d6b'); sg.addColorStop(1, '#0d2a4a');
+  b.fillStyle = sg; b.fillRect(sx, sy, sw, sh);
+  // a little fan on the stamp
+  b.translate(sx + sw / 2, sy + 118);
+  b.strokeStyle = '#ffc21a'; b.lineWidth = 6; b.beginPath(); b.arc(0, 0, 70, 0, 7); b.stroke();
+  b.fillStyle = '#ffc21a';
+  for (let i = 0; i < 6; i++) { b.save(); b.rotate(i * Math.PI / 3); b.beginPath(); b.ellipse(0, -34, 14, 30, 0.5, 0, 7); b.fill(); b.restore(); }
+  b.beginPath(); b.arc(0, 0, 12, 0, 7); b.fillStyle = '#1a0a26'; b.fill();
+  b.restore();
+  b.fillStyle = '#f3ead4'; b.textAlign = 'center'; b.font = `900 34px ${BLOCK}`; b.fillText('SHRED POST', sx + sw / 2, sy + 236);
+  b.font = `800 26px ${BLOCK}`; b.fillStyle = '#ffc21a'; b.fillText('42¢', sx + sw - 34, sy + 38); b.textAlign = 'left';
+  // postmark, over the stamp's corner
+  b.save(); b.translate(sx - 40, sy + 200); b.rotate(-0.18);
+  b.strokeStyle = 'rgba(40,40,60,0.75)'; b.lineWidth = 5; b.beginPath(); b.arc(0, 0, 105, 0, 7); b.stroke();
+  b.lineWidth = 3; b.beginPath(); b.arc(0, 0, 80, 0, 7); b.stroke();
+  b.fillStyle = 'rgba(40,40,60,0.8)'; b.textAlign = 'center'; b.font = `800 22px ${SERIF}`;
+  b.fillText('VORTEX PORTAL', 0, -20);
+  b.font = `700 26px ${SERIF}`; b.fillText(pile.started.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }).toUpperCase(), 0, 14);
+  b.font = `700 22px ${SERIF}`; b.fillText(String(pile.started.getFullYear()), 0, 44);
+  b.lineWidth = 5; b.strokeStyle = 'rgba(40,40,60,0.65)';
+  for (let i = 0; i < 4; i++) { b.beginPath(); for (let x = 120; x < 460; x += 8) b.lineTo(x, -40 + i * 26 + Math.sin(x / 22) * 8); b.stroke(); }
+  b.restore();
+  // address (right)
+  const ax = W / 2 + 70, aw = W / 2 - 160;
+  b.strokeStyle = '#b9a47a'; b.lineWidth = 3;
+  for (let i = 0; i < 4; i++) { const ly = 640 + i * 110; b.beginPath(); b.moveTo(ax, ly); b.lineTo(ax + aw, ly); b.stroke(); }
+  b.fillStyle = '#23305e'; b.font = `600 58px ${HAND}`;
+  b.fillText(to ? `To: ${to}` : 'To: you', ax + 10, 620);
+  b.font = `600 40px ${HAND}`; b.fillStyle = '#3b4a7e';
+  b.fillText('Somewhere past the vortex', ax + 10, 730);
+  b.fillText('World Builder', ax + 10, 840);
+  b.fillStyle = '#7a6a4a'; b.font = `500 24px ${SERIF}`;
+  b.fillText(`Send your own: ${url}`, ax, H - 130);
+  if (bill) b.fillText(`Fan repair bill so far: $${bill.toLocaleString()}`, ax, H - 94);
+  return { front: await toBlob(f), back: await toBlob(k) };
+}

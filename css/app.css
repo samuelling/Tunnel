@@ -398,3 +398,13 @@ body.split.flip #pane .paneBar b { white-space: nowrap; overflow: hidden; text-o
 
 /* hole mode: no fan, so the throttle is parked */
 #throttleBox.hole { opacity: .45; filter: grayscale(1); }
+
+/* postcard share */
+.pcFields { display: grid; grid-template-columns: 1fr; gap: 6px; margin: 8px 0; }
+.pcFields input, .pcFields textarea { width: 100%; box-sizing: border-box; background: #0b0d10; color: var(--t); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; font: 14px var(--sans); resize: none; }
+.pcBtns { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.pcCard { position: relative; margin-top: 10px; perspective: 1200px; }
+.pcCard img { display: block; width: 100%; border-radius: 6px; box-shadow: 0 10px 28px rgba(0,0,0,.55); transition: transform .35s ease; }
+.pcCard.turning img { transform: rotateY(90deg); }
+#pcFlip { position: absolute; right: 10px; bottom: 10px; background: rgba(10,8,20,.75); color: #fff; border: 1px solid rgba(255,255,255,.25); border-radius: 999px; padding: 6px 12px; font: 700 12px var(--sans); cursor: pointer; }
+#pcFlip[hidden] { display: none; }

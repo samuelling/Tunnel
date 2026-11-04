@@ -98,14 +98,19 @@
 <div id="shareBox" hidden>
   <div class="sh">
     <button id="shareClose" title="Close">✕</button>
-    <b>📸 Your shred pile</b>
+    <b>✉️ Send a postcard from the Shred Hole</b>
     <div id="shareActs" hidden>
-      <button id="shareGo">Share… (Messages, Mail)</button>
-      <a id="shareSave">Save image</a>
-      <a id="shareMail">Email</a>
-      <a id="shareText">Text</a>
+      <div class="pcFields">
+        <input id="pcTo" placeholder="To (a name)" maxlength="28" autocomplete="off">
+        <textarea id="pcNote" rows="2" maxlength="180" placeholder="Your note (or leave it to us)"></textarea>
+      </div>
+      <div class="pcBtns">
+        <button id="shareGo">✉️ Send postcard…</button>
+        <a id="shareSave">Save postcard</a>
+        <a id="shareMail">Email</a>
+      </div>
     </div>
-    <img id="shareImg" alt="Your shred pile" hidden>
+    <div class="pcCard" id="pcCard"><img id="shareImg" alt="Your postcard" hidden><button id="pcFlip" hidden title="Turn it over">⟲ Turn over</button></div>
     <p id="shareMsg"></p>
   </div>
 </div>
