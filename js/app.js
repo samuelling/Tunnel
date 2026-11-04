@@ -740,7 +740,8 @@ async function printPostcard() {
   postcard.files = [new File([pc.front], 'shred-hole-postcard.png', { type: 'image/png' }), new File([pc.back], 'shred-hole-postcard-back.png', { type: 'image/png' })];
   $('shareImg').src = postcard.urls[postcard.side]; $('shareImg').hidden = false; $('pcFlip').hidden = false;
   const to = $('pcTo').value.trim();
-  const text = `${to ? to + ', a' : 'A'} postcard from the Shred Hole ✉️ Make your own: ${site}`;
+  const shredUrl = 'https://samuelling.github.io/Tunnel/', zineUrl = 'https://megazine.org';
+  const text = `${to ? to + ', a' : 'A'} postcard from the Shred Hole ✉️\nShred your own: ${shredUrl}\nMore weird stuff from megaZINE: ${zineUrl}`;
   $('shareMsg').textContent = 'Tap ✉️ Send postcard to pick Messages, Mail or anything else. Both sides go as pictures.';
   const canFiles = !!(navigator.canShare && navigator.canShare({ files: postcard.files }));
   const canFront = !canFiles && !!(navigator.canShare && navigator.canShare({ files: postcard.files.slice(0, 1) }));
@@ -752,7 +753,7 @@ async function printPostcard() {
   };
   const save = $('shareSave'); save.href = postcard.urls.front; save.download = 'shred-hole-postcard.png';
   save.onclick = () => { setTimeout(() => { const a = document.createElement('a'); a.href = postcard.urls.back; a.download = 'shred-hole-postcard-back.png'; a.click(); }, 400); };
-  $('shareMail').href = `mailto:?subject=${encodeURIComponent('A postcard from the Shred Hole')}&body=${encodeURIComponent(text + '\n\n(Your browser can\'t attach pictures to email from a link: save the postcard first and attach both sides.)')}`;
+  $('shareMail').href = `mailto:?subject=${encodeURIComponent('A postcard from the Shred Hole')}&body=${encodeURIComponent(text + '\n\n(Save the postcard from the Shred Hole and attach both sides: an email link can\'t carry pictures.)')}`;
   if (!$('shareGo').hidden) $('shareMsg').textContent = 'Tap ✉️ Send postcard to pick Messages, Mail or anything else. Both sides go as pictures.';
   else $('shareMsg').textContent = 'This browser can\'t hand pictures to Messages or Mail directly: Save postcard, then attach both sides.';
 }

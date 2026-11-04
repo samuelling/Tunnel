@@ -394,7 +394,7 @@ export async function renderPostcard(pile, { url = '', to = '', note = '', bill 
   b.fillText('Somewhere past the vortex', ax + 10, 730);
   b.fillText('World Builder', ax + 10, 840);
   b.fillStyle = '#7a6a4a'; b.font = `500 24px ${SERIF}`;
-  b.fillText(`Send your own: ${url}`, ax, H - 130);
+  b.fillText(`Send your own: ${url}  ·  megazine.org`, ax, H - 130);
   if (bill) b.fillText(`Fan repair bill so far: $${bill.toLocaleString()}`, ax, H - 94);
   return { front: await toBlob(f), back: await toBlob(k) };
 }
