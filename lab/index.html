@@ -6,11 +6,14 @@
 <meta name="theme-color" content="#0d0f12">
 <title>Tunnel — a physically modelled wind tunnel</title>
 <link rel="stylesheet" href="css/style.css">
+<script type="importmap">
+{ "imports": { "three": "../lib/three.module.js", "three/addons/": "../lib/addons/" } }
+</script>
 </head>
 <body>
 <div id="app">
   <header id="top">
-    <div class="brand"><b>TUNNEL</b><span>low-speed research wind tunnel · lattice-Boltzmann LES</span></div>
+    <div class="brand"><b>TUNNEL</b><span>low-speed research wind tunnel · lattice-Boltzmann LES · <a href="../" style="color:inherit">← the Shred Hole</a></span></div>
     <div id="hud">
       <div><label>U∞</label><output id="hudU">—</output></div>
       <div><label>Re</label><output id="hudRe">—</output></div>

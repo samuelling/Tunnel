@@ -891,6 +891,15 @@ function flushInstantly() {
   drops.flushPayload();
 }
 
+// ------------------------------------------------------------------------------- the lab
+// Behind the scenes: the original lattice-Boltzmann wind tunnel (lab/), with this object as a
+// side-view silhouette at real size. Built-ins go by id; anything else is handed over in storage.
+function openInLab(r) {
+  const builtIn = CATALOG.some(c => c.id === r.id);
+  if (!builtIn) { try { localStorage.setItem('labRecipe', JSON.stringify(r)); } catch (e) { /* storage blocked */ } }
+  window.open(`lab/?shred=${builtIn ? encodeURIComponent(r.id) : 'local'}`, '_blank', 'noopener');
+}
+
 // ------------------------------------------------------------------------------- ride along
 // FLUSH! with RIDE ALONG on: the camera dives into the portal, you fly down the internet tube
 // with the payload (its real pieces), each ring a real hop, then tumble out of the sky portal over
@@ -1509,7 +1518,8 @@ function showCard(r) {
     <div class="facts"><span>mass <i>${fmtMass(m)}</i></span><span>size <i>${Lc.toFixed(2)} m</i></span><span>drag area <i>${(cda * 1e4).toFixed(0)} cm²</i></span>
     <span>terminal velocity <i>${vt.toFixed(1)} m/s</i></span><span>lifts off in <i>${bf.name.toLowerCase()}</i></span><span>Re now <i>${Re > 1e4 ? Re.toExponential(1) : Re.toFixed(0)}</i></span>
     <span>walls <i>${ph.f > 0.6 ? 'solid' : ph.t < 0.01 ? (ph.t * 1000).toFixed(1) + ' mm' : (ph.t * 100).toFixed(1) + ' cm'}</i></span><span>breaks at <i>${fmtE(ph.Ebreak)}</i></span><span>cutting force <i>${fmtForce(ph.Fneed)}</i></span>${verdictTxt ? `<span class="warn">${verdictTxt}</span>` : ''}</div>
-    ${r.fact ? `<p>${escapeHtml(r.fact)}</p>` : ''}<p class="hint">${isTouch ? 'Flick on the scene to throw · two fingers to look around' : 'Click or flick to throw · right-drag to look around · space = toss'}</p>`;
+    ${r.fact ? `<p>${escapeHtml(r.fact)}</p>` : ''}<p class="hint">${isTouch ? 'Flick on the scene to throw · two fingers to look around' : 'Click or flick to throw · right-drag to look around · space = toss'} · <a href="#" class="labLink">🔬 its airflow in the lab</a></p>`;
+  $('card').querySelector('.labLink').onclick = (e) => { e.preventDefault(); openInLab(r); };
   $('card').hidden = false;
   clearTimeout(showCard.h);
   if (isTouch) showCard.h = setTimeout(() => { $('card').hidden = true; }, 6000);

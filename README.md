@@ -136,6 +136,12 @@ The page sends anonymous counts (`js/stats.js`): one small hello when it opens a
 
 Turn on **🎢 RIDE ALONG** under the Portal Chute, then pull **FLUSH!**: the camera dives into the portal, and you fly down a glowing internet tube with the payload. The debris tumbling ahead of you is the real thing (the drop's own pieces); other people's traffic streams past the other way. Each ring is a real hop, captioned with real numbers where there are some: your Wi-Fi, your provider, the Cloudflare data centre that caught it (the Worker returns its code, e.g. EWR), the Worker (the drop's id), the mailbox (fuel left today), World Builder asking "anything new?", then the sky portal. You tumble out over the Shred Pile, falling with the pieces, and the camera pulls back to watch them land. **Skip ▶** or Esc jumps to the landing; **◀ Back to the Shred Hole** when you're done. The tube is `js/ride.js`; the landing is Pile Cam's `rideIn()`.
 
+### Behind the scenes: the lab
+
+[`/lab`](lab/) is the original wind tunnel: a GPU lattice-Boltzmann CFD solver (2D, with an LES sub-grid model) and rigid-body mounts. Every Shred Hole object is in its library as a **side-view silhouette** at real size (`lab/js/shredhole.js` projects the 3D object's triangles onto the side plane), in a test section the size of the Shred Hole's 4.8 m tube, with an effective 2D density so the mass per metre of span matches the real object (ρ_eff = mass ÷ depth ÷ silhouette area). Things from the Warehouse are fetched from the Worker on demand. From the game, an object's card has **🔬 its airflow in the lab**.
+
+Unlike the game's quick flow model, the air here *does* feel the object: wakes, vortex shedding, blockage. It's 2D, so a couch is really an infinitely long couch-shaped extrusion.
+
 ### Little things
 - **Fabricator animation**: while Claude designs a typed object, a little fabricator scans, welds and cycles through shapes, ticking off steps (reading the order → tuning the crunch) with a progress bar that creeps toward 95% and only finishes when the design arrives.
 - **🌀 Teleport** (toolbar): warns you that you're leaving the Shred Hole, flushes the Portal Chute, then sends you to World Builder at the Shred Pile (`?visit=shred-pile`). The address defaults to `WORLD_BUILDER_URL` in `js/settings.js` (`http://localhost:3000`) and can be changed in the dialog.

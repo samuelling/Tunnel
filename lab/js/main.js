@@ -4,6 +4,7 @@ import { Solver, MAX_OBJ } from './lbm.js';
 import { SHAPES, buildShape, thumbnail, textDraw, imageSilhouette, canvasDraw, strokeDraw } from './shapes.js';
 import { Body, angDiff } from './body.js';
 import { FLUIDS, MATERIALS, MOUNTS, GRAVITY, latticeScale, fmt, fmtSI } from './units.js';
+import { catalogShapes, catalogShape, warehouseList, warehouseShape, shredShape, SHRED_TUBE_H } from './shredhole.js';
 
 const $ = (id) => document.getElementById(id);
 const RES = { low: [480, 180], med: [768, 288], high: [1024, 384], ultra: [1536, 576] };
@@ -43,7 +44,18 @@ function init() {
     buildSolver();
   } catch (e) { console.error(e); fatal('Could not start the simulator: ' + e.message); return; }
   const cyl = SHAPES.find(s => s.id === 'cylinder');
-  addFromLibrary(cyl, { x: 0.27, y: 0.5, silent: true });
+  let started = false;
+  // opened from the Shred Hole: ?shred=<catalogue id>, or ?shred=local for the object it handed over
+  const want = QS.get('shred');
+  if (want) {
+    try {
+      let recipe = null;
+      if (want === 'local') recipe = JSON.parse(localStorage.getItem('labRecipe') || 'null');
+      else { const found = catalogShape(want); if (found) { addFromLibrary(found, { x: 0.3, y: 0.5 }); started = true; } }
+      if (recipe) { addFromLibrary(shredShape(recipe), { x: 0.3, y: 0.5 }); started = true; }
+    } catch (e) { console.warn(e); }
+  }
+  if (!started) addFromLibrary(cyl, { x: 0.27, y: 0.5, silent: true });
   layout();
   addEventListener('resize', layout);
   if (innerWidth < 600 && innerHeight > innerWidth) setTimeout(() => toast('Tip: turn your phone sideways for a bigger tunnel'), 1500);
@@ -138,13 +150,22 @@ function tuneSpring(b) {
 }
 
 function addFromLibrary(meta, where = {}) {
+  if (meta.realSize && st.H !== SHRED_TUBE_H) setHeight(SHRED_TUBE_H);   // the Shred Hole's own tube
   const shape = getShape(meta);
-  const b = addBody(shape, { name: meta.name, ref: meta.ref, size: meta.size * st.H / 0.5, mat: meta.mat, mount: meta.mount, angle: meta.angle, pivot: meta.pivot }, where);
+  const b = addBody(shape, { name: meta.name, ref: meta.ref, size: meta.realSize || meta.size * st.H / 0.5, mat: meta.mat, mount: meta.mount, angle: meta.angle, pivot: meta.pivot }, where);
   if (b && !where.silent) {
-    let msg = `${meta.name} added · drag to move, twist or scroll to rotate`;
+    let msg = meta.info ? `${meta.name}: ${meta.info}` : `${meta.name} added · drag to move, twist or scroll to rotate`;
     if (b.mount === 'free' && st.gravity === 'down') msg = `${meta.name} is free-flying: try Flow → Gravity → vertical tunnel to levitate it`;
     toast(msg);
   }
+}
+
+function setHeight(h) {
+  st.H = h;
+  const sel = $('height');
+  if (![...sel.options].some(o => +o.value === h)) sel.add(new Option(`${h} m (Shred Hole tube)`, String(h)));
+  sel.value = String(h);
+  updateScale(); syncSelControls();
 }
 
 function removeBody(b) {
@@ -656,6 +677,37 @@ function buildUI() {
     }
     lib.appendChild(grid);
   }
+  // the Shred Hole's objects, as side-view silhouettes at real size (built lazily: it takes a moment)
+  const shTitle = document.createElement('h4'); shTitle.textContent = 'Shred Hole';
+  const shGrid = document.createElement('div'); shGrid.className = 'lib';
+  const shNote = document.createElement('p'); shNote.className = 'hint';
+  shNote.textContent = 'The Shred Hole\'s objects as side-view silhouettes, at real size and per-span mass, in a test section the size of its 4.8 m tube. Pick one: real 2D CFD instead of the game\'s quick flow model.';
+  lib.prepend(shTitle, shNote, shGrid);
+  setTimeout(() => {
+    for (const s of catalogShapes()) {
+      const btn = document.createElement('button'); btn.title = `${s.name} · ${s.info}`;
+      btn.appendChild(thumbnail(s.draw, 54, '#ffc21a'));
+      btn.insertAdjacentHTML('beforeend', `<span>${s.name.replace(/^\S+\s/, '')}</span>`);
+      btn.onclick = () => addFromLibrary(s);
+      shGrid.appendChild(btn);
+    }
+  }, 60);
+  const whTitle = document.createElement('h4'); whTitle.textContent = 'Warehouse (designed by Claude)';
+  const whGrid = document.createElement('div'); whGrid.className = 'whlist';
+  shGrid.after(whTitle, whGrid);
+  warehouseList().then((items) => {
+    if (!items.length) { whTitle.remove(); whGrid.remove(); return; }
+    for (const it of items) {
+      const btn = document.createElement('button'); btn.className = 'whitem';
+      btn.textContent = `${it.icon || '✨'} ${it.name}`;
+      btn.onclick = async () => {
+        btn.disabled = true;
+        try { addFromLibrary(await warehouseShape(it)); } catch (e) { toast(`Couldn't fetch ${it.name}: ${e.message}`); }
+        btn.disabled = false;
+      };
+      whGrid.appendChild(btn);
+    }
+  });
   $('btnText').onclick = () => {
     const t = $('textIn').value.trim();
     if (!t) { toast('Type something first'); return; }

@@ -127,3 +127,8 @@ h4 { margin: 18px 0 6px; font-size: 10.5px; text-transform: uppercase; letter-sp
   .tab { padding: 8px 10px 16px; }
   .lib { grid-template-columns: repeat(4, 1fr); }
 }
+
+/* Warehouse (Shred Hole objects designed by Claude) */
+.whlist { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.whitem { background: rgba(255,194,26,.08); border: 1px solid rgba(255,194,26,.35); color: inherit; border-radius: 8px; padding: 5px 9px; font: inherit; font-size: 12px; cursor: pointer; }
+.whitem:disabled { opacity: .5; }
