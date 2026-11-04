@@ -1126,7 +1126,7 @@ function shredTitle() {
 // ------------------------------------------------------------------------------- teleport
 function worldBuilderUrl() {
   let u = ''; try { u = localStorage.getItem('wbLiveUrl') || ''; } catch {}
-  return u || WORLD_BUILDER_URL || 'http://localhost:3000';
+  return u || WORLD_BUILDER_URL || 'https://worlds.megazine.org';
 }
 function openWarp() {
   $('warpUrl').value = worldBuilderUrl();
@@ -1271,7 +1271,7 @@ function setPaneSource(src) {
   } else {
     pileCam?.stop();
     let u = ''; try { u = localStorage.getItem('wbLiveUrl') || ''; } catch {}
-    $('paneUrl').value = u || 'http://localhost:3000';
+    $('paneUrl').value = u || WORLD_BUILDER_URL;
     if (u) showLive(u); else { $('paneFrame').hidden = true; $('paneLive').hidden = false; }
   }
 }
