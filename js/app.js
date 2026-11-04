@@ -20,6 +20,7 @@ import { buildSafetyBoard } from './safetyboard.js';
 import { WORKER_URL, WORLD_BUILDER_URL } from './settings.js';
 import { stats } from './stats.js';
 import { TubeRide, RIDE_SECONDS } from './ride.js';
+import { RealAir } from './realair.js';
 import { Particles } from './particles.js';
 import { Audio } from './audio.js';
 import { generateRecipe, generatorAvailable } from './claude.js';
@@ -891,6 +892,24 @@ function flushInstantly() {
   drops.flushPayload();
 }
 
+// ------------------------------------------------------------------------------- real air
+// The lab's lattice-Boltzmann solver on a slice through the tube, drawn as a glowing cut-away
+// (js/realair.js). Visual only for now: the game's physics still uses its own air model.
+let realAir = null, realAirMode = 'off', realAirBroken = false;
+function setRealAir(mode, quiet) {
+  if (mode !== 'off' && !realAir && !realAirBroken) {
+    try { realAir = new RealAir(rig, { maxSteps: isTouch ? 24 : 48 }); }
+    catch (e) { realAirBroken = true; console.warn(e); if (!quiet) toast('Real air needs WebGL2 float textures, which this browser doesn’t have'); mode = 'off'; }
+  }
+  if (realAirBroken) mode = 'off';
+  realAirMode = mode;
+  try { localStorage.setItem('shredRealAir', mode); } catch (e) { /* ignore */ }
+  realAir?.setVisible(mode !== 'off'); realAir?.setMode(mode);
+  $('btnAir').classList.toggle('on', mode !== 'off');
+  $('airName').textContent = mode === 'off' ? '' : mode === 'smoke' ? 'SMOKE' : 'SWIRL';
+  if (!quiet) toast(mode === 'off' ? 'Real air off' : mode === 'smoke' ? '🔬 Real air: lattice-Boltzmann CFD on a slice through the tube (smoke)' : '🔬 Real air: the same slice, coloured by swirl (vorticity)');
+}
+
 // ------------------------------------------------------------------------------- the lab
 // Behind the scenes: the original lattice-Boltzmann wind tunnel (lab/), with this object as a
 // side-view silhouette at real size. Built-ins go by id; anything else is handed over in storage.
@@ -1095,6 +1114,7 @@ const TOOL_TIPS = {
   btnSlow: ['Slow motion', 'Run the world at a crawl'],
   btnBullet: ['Bullet time', 'Auto slow-mo right before the blades hit'],
   btnSmoke: ['Smoke tracers', 'Show the airflow down the tube'],
+  btnAir: ['Real air', 'Live CFD on a slice through the tube: off → smoke → swirl'],
   btnGust: ['Gust', 'A sudden blast of air'],
   btnSound: ['Sound', 'Mute or unmute'],
   btnChaos: ['Chaos', 'Throw 8 random things at once'],
@@ -1322,6 +1342,7 @@ function loop(now) {
     shake *= Math.pow(0.02, fdt);
   }
   if (ride && ride.dive) ride.dive(fdt);
+  if (realAir && realAirMode !== 'off' && !(ride && ride.covered)) { try { realAir.update(fdt * ts, { bodies, air, camera, rig }); } catch (e) { console.warn(e); setRealAir('off', true); realAirBroken = true; } }
   const cw = renderer.domElement.clientWidth;   // the split pane is gliding in or out: follow it
   if (cw !== lastCW) { lastCW = cw; resize(); }
   if (!(pileCovers && flipping()) && !(ride && ride.covered)) renderer.render(scene, camera);   // flip mode: the tunnel is off-screen
@@ -1379,6 +1400,9 @@ function buildUI() {
   $('btnBullet').onclick = () => { autoBullet = !autoBullet; $('btnBullet').classList.toggle('on', autoBullet); toast(autoBullet ? 'Auto bullet-time on: slows down right before the chop' : 'Auto bullet-time off'); };
   $('btnBullet').classList.toggle('on', autoBullet);
   $('btnSmoke').onclick = () => { smokeOn = !smokeOn; $('btnSmoke').classList.toggle('on', smokeOn); };
+  $('btnAir').onclick = () => setRealAir(realAirMode === 'off' ? 'smoke' : realAirMode === 'smoke' ? 'swirl' : 'off');
+  // on by default on desktops (smoke); phones start with it off, to spare the battery
+  { let m = null; try { m = localStorage.getItem('shredRealAir'); } catch (e) { /* ignore */ } setRealAir(m || (!isTouch && innerWidth >= 900 ? 'smoke' : 'off'), true); }
   $('btnSound').onclick = () => { audio.setEnabled(!audio.enabled); $('btnSound').classList.toggle('on', audio.enabled); $('btnSound').textContent = audio.enabled ? '🔊' : '🔇'; };
   $('btnSound').classList.add('on');
   $('btnGust').onclick = () => { air.gust = 2.5; toast('Gust!'); };
