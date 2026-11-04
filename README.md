@@ -46,7 +46,7 @@ Debris falling below the tube is caught by the portal's vortex (a swirling inflo
   "particles": { "count": 0, "colors": ["#ff3b4a"] } }
 ```
 
-Drops go to `WORKER_URL/drops` (the Cloudflare Worker's KV mailbox) and to any URLs in `DROP_URLS` (`js/settings.js`). To test, you can also open the page with `?drop=<url>`. World Builder's server speaks the same API (`POST`/`GET /api/shred/drops`), so a deployed World Builder can be posted to directly. Undelivered drops are kept in the browser. The Claude-hosted copy of the page can't send data to other sites, so its portal keeps everything locally.
+Drops go to `WORKER_URL/drops` (the Cloudflare Worker's KV mailbox) and to any URLs in `DROP_URLS` (`js/settings.js`). To test, you can also open the page with `?drop=<url>`. World Builder's server speaks the same API (`POST`/`GET /api/shred/drops`), and Matt's public one, `https://worlds.megazine.org/api/shred/drops`, is in `DROP_URLS`, so every drop is posted to it directly, once. Undelivered drops are kept in the browser. The Claude-hosted copy of the page can't send data to other sites, so its portal keeps everything locally.
 
 ## Type anything (Claude designs the object)
 
@@ -152,7 +152,7 @@ Unlike the game's quick flow model, the air here *does* feel the object: wakes, 
 
 ### Little things
 - **Fabricator animation**: while Claude designs a typed object, a little fabricator scans, welds and cycles through shapes, ticking off steps (reading the order → tuning the crunch) with a progress bar that creeps toward 95% and only finishes when the design arrives.
-- **🌀 Teleport** (toolbar): warns you that you're leaving the Shred Hole, flushes the Portal Chute, then sends you to World Builder at the Shred Pile (`?visit=shred-pile`). The address defaults to `WORLD_BUILDER_URL` in `js/settings.js` (`http://localhost:3000`) and can be changed in the dialog.
+- **🌀 Teleport** (toolbar): warns you that you're leaving the Shred Hole, flushes the Portal Chute, then sends you to World Builder at the Shred Pile (`?visit=shred-pile`). The address defaults to `WORLD_BUILDER_URL` in `js/settings.js` (`https://worlds.megazine.org`) and can be changed in the dialog.
 - **Split view on a phone**: 🪟 works on small screens too. Instead of squeezing both side by side, the Shred Pile waits one screen to the right. You stay on the tunnel until you FLUSH!, then it slides over to watch the payload land; **◀ Hole** / **🌀 Pile ▶** (or a swipe in from the screen edge) flips back and forth. Only the visible scene is drawn.
 - **Smooth split**: the pane slides in while the tunnel, toolbar, tray and levers glide aside with it (`--paneW` is a registered CSS property, so it animates); Pile Cam warms up before it moves and reads the mailbox only after it lands.
 - **No iOS zooming**: double-tap and page pinch-zoom are switched off (`touch-action: manipulation`, gesture events), and text fields are 16 px on touch screens so focusing one doesn't zoom.
