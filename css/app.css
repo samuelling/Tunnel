@@ -395,3 +395,6 @@ body.split.flip #pane .paneBar b { white-space: nowrap; overflow: hidden; text-o
 .rideSub { margin-top: 8px; font: 600 clamp(13px, 2.4vw, 16px) var(--sans); color: #f0e8ff; text-shadow: 0 1px 8px #000; }
 .rideCap.pop .rideHop { animation: ridePop .5s cubic-bezier(.2,1.6,.4,1); }
 @keyframes ridePop { from { transform: scale(.6); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+
+/* hole mode: no fan, so the throttle is parked */
+#throttleBox.hole { opacity: .45; filter: grayscale(1); }

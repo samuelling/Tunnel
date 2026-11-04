@@ -126,16 +126,18 @@ function buildTunnel(rig) {
   const band = new THREE.Mesh(new THREE.CylinderGeometry(R + 0.135, R + 0.135, 0.45, 72, 1, true), new THREE.MeshStandardMaterial({ map: hzTex, roughness: 0.6 }));
   band.rotation.z = Math.PI / 2; band.position.set(fanX, 0, 0); g.add(band);
   for (const x of [glassLen, L]) { const fl = new THREE.Mesh(new THREE.TorusGeometry(R + 0.14, 0.08, 10, 72), darkSteel); fl.rotation.y = Math.PI / 2; fl.position.set(x, 0, 0); g.add(fl); }
+  // the motor (nacelle and struts) is its own group, so Hole Mode can slide it out with the fan
+  const motor = new THREE.Group(); g.add(motor);
   const nac = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.42, 1.5, 32), darkSteel);
-  nac.rotation.z = Math.PI / 2; nac.position.set(fanX + 0.95, 0, 0); nac.castShadow = true; g.add(nac);
+  nac.rotation.z = Math.PI / 2; nac.position.set(fanX + 0.95, 0, 0); nac.castShadow = true; motor.add(nac);
   for (let k = 0; k < 4; k++) {
     const st = new THREE.Mesh(new THREE.BoxGeometry(0.14, R - 0.45, 0.06), darkSteel);
     const a = Math.PI / 4 + k * Math.PI / 2;
     st.position.set(fanX + 1.1, Math.cos(a) * (R / 2 + 0.2), Math.sin(a) * (R / 2 + 0.2));
-    st.rotation.x = -a; g.add(st);
+    st.rotation.x = -a; motor.add(st);
   }
   rig.add(g);
-  return { group: g };
+  return { group: g, motor };
 }
 
 // Steel tower holding the tube up, a catwalk at the top, signs and a warning beacon (world space).
@@ -283,7 +285,8 @@ export function buildColliders(world, RAPIER) {
       .setRotation({ x: q.x, y: q.y, z: q.z, w: q.w }).setFriction(0.5).setRestitution(0.3);
     world.createCollider(cd, fixed);
   }
-  world.createCollider(RAPIER.ColliderDesc.ball(FAN.Rhub).setTranslation(fanX - 0.15, 0, 0).setRestitution(0.4), fixed);
+  const hub = [world.createCollider(RAPIER.ColliderDesc.ball(FAN.Rhub).setTranslation(fanX - 0.15, 0, 0).setRestitution(0.4), fixed)];
   const qz = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), Math.PI / 2);
-  world.createCollider(RAPIER.ColliderDesc.cylinder(0.75, 0.5).setTranslation(fanX + 0.95, 0, 0).setRotation({ x: qz.x, y: qz.y, z: qz.z, w: qz.w }), fixed);
+  hub.push(world.createCollider(RAPIER.ColliderDesc.cylinder(0.75, 0.5).setTranslation(fanX + 0.95, 0, 0).setRotation({ x: qz.x, y: qz.y, z: qz.z, w: qz.w }), fixed));
+  return { hub };   // Hole Mode switches these off while the fan is out
 }

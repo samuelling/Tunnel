@@ -136,6 +136,10 @@ The page sends anonymous counts (`js/stats.js`): one small hello when it opens a
 
 Turn on **🎢 RIDE ALONG** under the Portal Chute, then pull **FLUSH!**: the camera dives into the portal, and you fly down a glowing internet tube with the payload. The debris tumbling ahead of you is the real thing (the drop's own pieces); other people's traffic streams past the other way. Each ring is a real hop, captioned with real numbers where there are some: your Wi-Fi, your provider, the Cloudflare data centre that caught it (the Worker returns its code, e.g. EWR), the Worker (the drop's id), the mailbox (fuel left today), World Builder asking "anything new?", then the sky portal. You tumble out over the Shred Pile, falling with the pieces, and the camera pulls back to watch them land. **Skip ▶** or Esc jumps to the landing; **◀ Back to the Shred Hole** when you're done. The tube is `js/ride.js`; the landing is Pile Cam's `rideIn()`.
 
+### Hole Mode (🕳️ in the toolbar)
+
+The fan and its motor slide sideways out of the tube, the breaker locks off, and the hub's colliders switch off. What you drop just falls through still air, down the tube and onto the Portal Chute, whole (fragile things can still break when they land, and Real Air shows the wake they leave in still air). Tap 🕳️ again and it slides back in, with the throttle where you left it. Not available while the fan is jammed.
+
 ### Real air (🔬 in the toolbar)
 
 The lab's lattice-Boltzmann solver, running live on a slice through the tube's axis that turns to face you, drawn as a glowing cut-away inside the glass (`js/realair.js`). The fan hub and the biggest objects near the slice are cut into it as moving obstacles (each one's side-on silhouette, turning with its body), so you see their real wakes and swirl. Tap 🔬 to cycle **off → smoke → swirl** (vorticity). It's on by default on desktops and off on phones. 64 cells across the 4.8 m tube (7.5 cm cells); each frame runs enough steps to keep up with the game's clock, up to 48 (24 on phones), and on a slower GPU the slice's flow lags rather than the frame rate dropping. For now it's a picture: the game's physics still uses its own air model.

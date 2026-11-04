@@ -81,7 +81,7 @@ export class RealAir {
   // tube-frame point → lattice coordinates on the slice
   toLattice(x, y, z) { const s = y * this.e.y + z * this.e.z; return [(this.flip > 0 ? x : TUN.L - x) / DX, (s + R) / DX]; }
 
-  update(dt, { bodies, air, camera, rig }) {
+  update(dt, { bodies, air, camera, rig, hub = true }) {
     if (!this.on) return;
     // the slice faces the camera: its normal is the camera's direction across the tube
     const c = rig.worldToLocal(camera.position.clone());
@@ -99,7 +99,7 @@ export class RealAir {
     const shapes = [];
     const put = (sh, cx, cy, th, vx, vy, w, px, py) => shapes.push(sh) && list.push({ cx, cy, c: Math.cos(th), s: Math.sin(th), S: sh.S, omega: w, vx, vy, px, py, dil: sh.dil });
     const [hx, hy] = this.toLattice(TUN.fanX, 0, 0);
-    put(this.hub, hx, hy, 0, 0, 0, 0, hx, hy);
+    if (hub) put(this.hub, hx, hy, 0, 0, 0, 0, hx, hy);
     const cand = [];
     for (const b of bodies) {
       if (b.dead || !b.body || b.radius < 0.12) continue;

@@ -32,6 +32,7 @@ const isTouch = matchMedia('(pointer: coarse)').matches;
 const MAX_BODIES = isTouch ? 170 : 260;
 const DT = 1 / 180;
 
+let hubColliders = [], holeMode = false, holeAnim = null, holeThrottle = 70;
 let renderer, scene, rig, portal, camera, controls, world, eventQueue, air, rotor, fan, particles, tunnel, drops, sign, safety;
 const absorbing = [];
 const audio = new Audio();
@@ -61,7 +62,7 @@ async function boot() {
   world.timestep = DT;
   world.integrationParameters.numSolverIterations = 6;
   eventQueue = new RAPIER.EventQueue(true);
-  buildColliders(world, RAPIER);
+  hubColliders = buildColliders(world, RAPIER).hub;
   buildHatch();
 
   air = new Air();
@@ -369,7 +370,7 @@ function physicsStep(dt) {
 
   // blade strikes
   const th0 = rotor.prevTheta, th1 = rotor.theta;
-  if (Math.abs(rotor.omega) > 0.2) {
+  if (!holeMode && Math.abs(rotor.omega) > 0.2) {
     for (const rec of bodies) {
       if (rec.dead || simTime < rec.cool) continue;
       const t = rec.body.translation();
@@ -892,6 +893,48 @@ function flushInstantly() {
   drops.flushPayload();
 }
 
+// ------------------------------------------------------------------------------- hole mode
+// The fan and its motor slide out of the tube through the side, the breaker is locked off, and
+// whatever you drop just falls: through still air, down the tube, onto the Portal Chute, whole
+// (fragile things can still break when they land). Slide it back in to shred again.
+const HOLE_OUT = -(TUN.R + 3.6);   // sideways (tube y, i.e. world x): out of the tube, away from the Overview camera
+function setHoleMode(on) {
+  if (on === holeMode) return;
+  if (on && (jam || repairing)) { toast('Fix the fan first: it has to be working to slide out'); return; }
+  holeMode = on;
+  const thr = $('throttle');
+  if (on) {
+    holeThrottle = +thr.value || holeThrottle;
+    thr.value = 0; thr.oninput(); thr.disabled = true;
+    rotor.locked = true;                         // breaker off: it spins down as it slides
+    for (const c of hubColliders) c.setEnabled(false);
+    toast('🕳️ HOLE MODE: the fan slides out of the way. Drop things straight down the tube.');
+  } else {
+    toast('The fan slides back in. Shredding resumes.');
+  }
+  audio.start(); audio.hit('clang', 2e4); setTimeout(() => audio.hit('thunk', 8e3), 900);
+  holeAnim = { t: 0, from: fan.group.position.y, to: on ? HOLE_OUT : TUN.y0 };
+  $('btnHole').classList.toggle('on', on);
+  $('throttleBox').classList.toggle('hole', on);
+  document.body.classList.toggle('holeMode', on);
+}
+function stepHole(dt) {
+  const a = holeAnim;
+  a.t = Math.min(1, a.t + dt / 1.6);
+  const e = a.t < 0.5 ? 4 * a.t ** 3 : 1 - (-2 * a.t + 2) ** 3 / 2;
+  const y = a.from + (a.to - a.from) * e;
+  fan.group.position.y = y;
+  if (tunnel.motor) tunnel.motor.position.y = y - TUN.y0;
+  if (a.t >= 1) {
+    holeAnim = null;
+    if (!holeMode) {                             // back in place: colliders on, breaker on, throttle back
+      for (const c of hubColliders) c.setEnabled(true);
+      if (!jam) rotor.locked = false;
+      const thr = $('throttle'); thr.disabled = false; thr.value = holeThrottle; thr.oninput();
+    }
+  }
+}
+
 // ------------------------------------------------------------------------------- real air
 // The lab's lattice-Boltzmann solver on a slice through the tube, drawn as a glowing cut-away
 // (js/realair.js). Visual only for now: the game's physics still uses its own air model.
@@ -1114,6 +1157,7 @@ const TOOL_TIPS = {
   btnSlow: ['Slow motion', 'Run the world at a crawl'],
   btnBullet: ['Bullet time', 'Auto slow-mo right before the blades hit'],
   btnSmoke: ['Smoke tracers', 'Show the airflow down the tube'],
+  btnHole: ['Hole mode', 'Slide the fan out of the way and just drop things down the tube'],
   btnAir: ['Real air', 'Live CFD on a slice through the tube: off → smoke → swirl'],
   btnGust: ['Gust', 'A sudden blast of air'],
   btnSound: ['Sound', 'Mute or unmute'],
@@ -1342,7 +1386,8 @@ function loop(now) {
     shake *= Math.pow(0.02, fdt);
   }
   if (ride && ride.dive) ride.dive(fdt);
-  if (realAir && realAirMode !== 'off' && !(ride && ride.covered)) { try { realAir.update(fdt * ts, { bodies, air, camera, rig }); } catch (e) { console.warn(e); setRealAir('off', true); realAirBroken = true; } }
+  if (holeAnim) stepHole(fdt);
+  if (realAir && realAirMode !== 'off' && !(ride && ride.covered)) { try { realAir.update(fdt * ts, { bodies, air, camera, rig, hub: !holeMode }); } catch (e) { console.warn(e); setRealAir('off', true); realAirBroken = true; } }
   const cw = renderer.domElement.clientWidth;   // the split pane is gliding in or out: follow it
   if (cw !== lastCW) { lastCW = cw; resize(); }
   if (!(pileCovers && flipping()) && !(ride && ride.covered)) renderer.render(scene, camera);   // flip mode: the tunnel is off-screen
@@ -1390,7 +1435,7 @@ function buildUI() {
     if (Math.abs(v) < 6) { v = 0; if (+thr.value !== 0) thr.value = 0; }   // centre detent = off
     rotor.setpoint = v / 100;
     const u = FAN.phi * Math.abs(rotor.setpoint) * FAN.omegaMax * FAN.Rtip * (v < 0 ? FAN.reverseEff : 1);
-    $('thrOut').textContent = v === 0 ? 'OFF' : `${v > 0 ? '↓' : '↑'} ${u.toFixed(0)} m/s`;
+    $('thrOut').textContent = holeMode ? 'NO FAN' : v === 0 ? 'OFF' : `${v > 0 ? '↓' : '↑'} ${u.toFixed(0)} m/s`;
     $('throttleBox').classList.toggle('rev', v < 0);
   };
   thr.oninput = setThr; setThr();
@@ -1400,6 +1445,7 @@ function buildUI() {
   $('btnBullet').onclick = () => { autoBullet = !autoBullet; $('btnBullet').classList.toggle('on', autoBullet); toast(autoBullet ? 'Auto bullet-time on: slows down right before the chop' : 'Auto bullet-time off'); };
   $('btnBullet').classList.toggle('on', autoBullet);
   $('btnSmoke').onclick = () => { smokeOn = !smokeOn; $('btnSmoke').classList.toggle('on', smokeOn); };
+  $('btnHole').onclick = () => setHoleMode(!holeMode);
   $('btnAir').onclick = () => setRealAir(realAirMode === 'off' ? 'smoke' : realAirMode === 'smoke' ? 'swirl' : 'off');
   // on by default on desktops (smoke); phones start with it off, to spare the battery
   { let m = null; try { m = localStorage.getItem('shredRealAir'); } catch (e) { /* ignore */ } setRealAir(m || (!isTouch && innerWidth >= 900 ? 'smoke' : 'off'), true); }
