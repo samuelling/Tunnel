@@ -83,14 +83,14 @@
   <div class="paneBar">
     <button id="paneBack" title="Back to the Shred Hole">◀ Hole</button>
     <b>🌀 THE SHRED PILE</b><span id="paneStat"></span>
-    <select id="paneSrc" title="What to show"><option value="cam">Pile Cam</option><option value="live">Live World Builder</option></select>
+    <select id="paneSrc" title="What to show"><option value="live" selected>Live World Builder</option><option value="cam">Pile Cam</option></select>
     <button id="paneClose" title="Close split view">✕</button>
   </div>
   <canvas id="pileCanvas"></canvas>
   <iframe id="paneFrame" hidden title="World Builder" allow="fullscreen"></iframe>
   <div id="paneLive" hidden>
-    <p><b>Live World Builder</b> shows Matt's actual world, if it's running somewhere this browser can reach (that's <code>https://worlds.megazine.org</code>).</p>
-    <div class="row"><input id="paneUrl" placeholder="https://worlds.megazine.org" autocomplete="off"><button id="paneGo">Show it</button></div>
+    <p><b>Live World Builder</b> shows Matt's actual world at <code>worlds.megazine.org</code>, at the Shred Pile. Paste another address to look somewhere else.</p>
+    <div class="row"><input id="paneUrl" placeholder="https://worlds.megazine.org/" autocomplete="off"><button id="paneGo">Show it</button></div>
     <p class="dim">Pile Cam shows the same pile anywhere: it reads the same mailbox, and each drop's place is worked out from its id.</p>
   </div>
 </div>
@@ -164,8 +164,8 @@
     <h2>Leaving the Shred Hole</h2>
     <p>You're about to step through the vortex portal into <b>World Builder</b>, and land beside the <b>Shred Pile</b>, where everything that goes down this tube ends up.</p>
     <p class="warnLine">⚠ This leaves the Shred Hole. Anything still waiting in the Portal Chute gets flushed through first; whatever is mid-air in the tube is left behind.</p>
-    <p class="note">World Builder is at <code>https://worlds.megazine.org</code>.</p>
-    <div class="row"><input id="warpUrl" placeholder="https://worlds.megazine.org" autocomplete="off"></div>
+    <p class="note">Matt's world lives at <code>worlds.megazine.org</code>; you'll land at the Shred Pile.</p>
+    <div class="row"><input id="warpUrl" placeholder="https://worlds.megazine.org/" autocomplete="off"></div>
     <div class="row warpActs"><button id="warpStay" class="ghost">Stay and shred</button><button id="warpGo">🌀 Teleport me</button></div>
   </div>
 </div>

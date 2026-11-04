@@ -823,7 +823,7 @@ function openPayloadHatch(why) {
   if (why === 'lever' && rideOn()) startRide();
   drops.hold = true;
   // flip mode: get Pile Cam going now (so the payload is caught as it's sent), slide over once the doors are open
-  if (!ride && flipping() && !onPile && $('paneSrc').value !== 'live') { pileCam?.start(); setTimeout(() => showPile(true), 1300); }
+  if (!ride && flipping() && !onPile) { if ($('paneSrc').value !== 'live') pileCam?.start(); setTimeout(() => showPile(true), 1300); }
   for (const c of hatchColliders) c.setEnabled(false);
   thawHatch();
   for (const b of bodies) if (onHatch(b)) b.body.wakeUp();
@@ -1125,8 +1125,8 @@ function shredTitle() {
 
 // ------------------------------------------------------------------------------- teleport
 function worldBuilderUrl() {
-  let u = ''; try { u = localStorage.getItem('wbLiveUrl') || ''; } catch {}
-  return u || WORLD_BUILDER_URL || 'https://worlds.megazine.org';
+  let u = ''; try { u = localStorage.getItem('wbUrl') || ''; } catch {}
+  return u || WORLD_BUILDER_URL;
 }
 function openWarp() {
   $('warpUrl').value = worldBuilderUrl();
@@ -1137,8 +1137,8 @@ function warpToWorldBuilder() {
   let url;
   try { url = new URL($('warpUrl').value.trim() || worldBuilderUrl(), location.href); }
   catch { $('warpUrl').focus(); return; }
-  try { localStorage.setItem('wbLiveUrl', url.origin + url.pathname); } catch {}
-  url.searchParams.set('visit', 'shred-pile');
+  try { localStorage.setItem('wbUrl', url.href); } catch {}
+  if (!/lat=/.test(url.hash)) url.searchParams.set('visit', 'shred-pile');   // a link with a camera position already says where
   flushInstantly();   // whatever is waiting in the Portal Chute goes through ahead of you
   $('warp').hidden = true;
   audio.whoosh?.(40);
@@ -1270,14 +1270,14 @@ function setPaneSource(src) {
     pileCam.start(); pileCam.resize();
   } else {
     pileCam?.stop();
-    let u = ''; try { u = localStorage.getItem('wbLiveUrl') || ''; } catch {}
-    $('paneUrl').value = u || WORLD_BUILDER_URL;
+    const u = worldBuilderUrl();
+    $('paneUrl').value = u;
     if (u) showLive(u); else { $('paneFrame').hidden = true; $('paneLive').hidden = false; }
   }
 }
 function showLive(u) {
   const url = new URL(u, location.href);
-  url.searchParams.set('visit', 'shred-pile');
+  if (!/lat=/.test(url.hash)) url.searchParams.set('visit', 'shred-pile');
   $('paneLive').hidden = true;
   $('paneFrame').hidden = false;
   $('paneFrame').src = url.href;
@@ -1480,7 +1480,7 @@ function buildUI() {
   addEventListener('resize', () => { const on = document.body.classList.contains('split'); if (on && flipMode() !== flipping()) setSplit(true); });
   $('paneClose').onclick = () => setSplit(false);
   $('paneSrc').onchange = () => setPaneSource($('paneSrc').value);
-  $('paneGo').onclick = () => { const u = $('paneUrl').value.trim(); if (u) { try { localStorage.setItem('wbLiveUrl', u); } catch {} showLive(u); } };
+  $('paneGo').onclick = () => { const u = $('paneUrl').value.trim(); if (u) { try { localStorage.setItem('wbUrl', u); } catch {} showLive(u); } };
   if (new URLSearchParams(location.search).has('split')) setSplit(true);
   $('shareClose').onclick = () => { $('shareBox').hidden = true; };
   $('infoClose').onclick = () => { $('info').hidden = true; };
