@@ -5,7 +5,18 @@
 // that faces the camera, and draws it as a glowing cut-away inside the glass. The biggest things
 // near that plane (and the fan hub) are cut into it as moving obstacles, each a silhouette
 // turning with its body, so you see their real wakes, vortex shedding and the jet round the hub.
-// It is a picture only (option 1): the game's physics still uses its own air model.
+//
+// It also steers the physics (option 2). About ten times a second the slice's velocity field is
+// read back from the GPU (asynchronously, so nothing waits on it). Each body near the plane looks
+// a little upstream of itself in the slice and compares what it finds with the slice's own
+// body-free reference flow: being in another thing's wake (drafting, shielding) or squeezed past
+// it (a faster jet, a sideways push) shows up as a difference, which is added to the game's
+// kinematic air for that body. Comparing against the body-free reference keeps the hub and walls,
+// which the kinematic model already has, from being counted twice. A 2D slice overstates wakes
+// (a 2D cylinder's wake is far longer and stronger than a 3D sphere's), so only half of the
+// difference is used, and it fades with distance from the plane. Things jammed across the tube
+// just above the fan block the slice too, and that cuts the fan's flow (fan law with an added
+// resistance).
 //
 // Scale: 64 cells across the 4.8 m tube (7.5 cm cells), lattice speed 0.12 at 40 m/s. Each frame
 // runs as many steps as keep the slice in step with the game's clock, up to a cap; on a slow GPU
@@ -20,6 +31,8 @@ const GH = 64, R = TUN.R, DX = (2 * R) / GH, GW = Math.round(TUN.L / DX);
 const ULB_REF = 0.12, U_REF = 40;
 const DT = ULB_REF * DX / U_REF;            // seconds per lattice step
 const MODES = { smoke: 0, swirl: 1 };
+const BLEND = 0.5;        // share of the slice's disturbance the physics takes (2D overstates wakes)
+const READ_EVERY = 0.1;   // seconds between velocity read-backs
 
 export class RealAir {
   constructor(rig, { maxSteps = 48 } = {}) {
@@ -35,6 +48,8 @@ export class RealAir {
     this.maxSteps = maxSteps; this.mode = 'smoke'; this.flip = 1;
     this.e = new THREE.Vector3(0, 0, 1); this.n = new THREE.Vector3(0, 1, 0);
     this.cache = new WeakMap(); this.queue = []; this.carry = 0;
+    this.field = null; this.base = new Map(); this.readClock = 0; this.readId = 0; this.pend = null;
+    this.felt = 0; this.feltMax = 0;
     // the fan hub, fixed in the slice
     this.hub = this.makeShape([[[-0.42, -FAN.Rhub], [0.42, -FAN.Rhub], [0.42, FAN.Rhub], [-0.42, FAN.Rhub]]]);
     // the cut-away: a glowing plane through the axis, added over the scene
@@ -47,7 +62,7 @@ export class RealAir {
     this.setVisible(false);
   }
 
-  setVisible(on) { this.mesh.visible = on; this.on = on; }
+  setVisible(on) { this.mesh.visible = on; this.on = on; if (!on) this.field = null; }
   setMode(m) { this.mode = m; }
 
   // silhouette (list of 2D polygons, metres) → a lab shape with its scale data
@@ -83,6 +98,7 @@ export class RealAir {
 
   update(dt, { bodies, air, camera, rig, hub = true }) {
     if (!this.on) return;
+    this.frame = (this.frame || 0) + 1;
     // the slice faces the camera: its normal is the camera's direction across the tube
     const c = rig.worldToLocal(camera.position.clone());
     const nn = new THREE.Vector3(0, c.y, c.z); if (nn.lengthSq() < 1e-6) nn.set(0, 1, 0);
@@ -153,10 +169,112 @@ export class RealAir {
     });
     this.tex.needsUpdate = true;
     this.steps = n;
+    this.sense(dt, list.length - (hub ? 1 : 0), hub);
+  }
+
+  // ---- option 2: the slice feeding back into the physics ----
+
+  // read the velocity field (and the obstacle map) back from the GPU every READ_EVERY seconds
+  sense(dt, nBodies, hub) {
+    const sv = this.solver;
+    for (const r of sv.reader.poll()) {
+      const t = r.tag;
+      if (t.kind !== 'ra') continue;
+      if (t.part === 'u') this.pend = { ...t.meta, u: r.data };
+      else if (this.pend?.id === t.id) { this.take({ ...this.pend, obs: r.data }); this.pend = null; }
+    }
+    this.readClock += dt;
+    if (this.readClock >= READ_EVERY && sv.reader.pending.length < 4 && sv.p.uin > 0.004) {
+      this.readClock = 0;
+      const id = ++this.readId;
+      const meta = { id, e: this.e.clone(), n: this.n.clone(), flip: this.flip, hub, uin: sv.p.uin, bodies: nBodies };
+      sv.reader.request(sv.fboC[sv.cur], 0, 0, GW, GH, { kind: 'ra', part: 'u', id, meta });
+      sv.reader.request(sv.obsFbo, 0, 0, GW, GH, { kind: 'ra', part: 'obs', id });
+    }
+  }
+
+  take(f) {
+    f.at = performance.now(); f.frame = this.frame;
+    const u = f.u, N = GW * GH;
+    // speeds are taken relative to each column's mean flow (the flow rate through the tube at that
+    // point), not the inlet's: while the fan spins up or down the slice lags its inlet, and this
+    // keeps that lag from looking like a wake
+    const cm = f.colMean = new Float32Array(GW);
+    for (let gx = 0; gx < GW; gx++) { let a = 0; for (let gy = 0; gy < GH; gy++) a += u[(gy * GW + gx) * 4 + 2]; cm[gx] = Math.max(a / GH, f.uin * 0.2, 1e-5); }
+    // whenever the slice has nothing in it but the hub, and its flow has filled the whole tube
+    // (every column carrying the inlet's flow rate to within 5%), it updates the reference flow
+    let dev = 0; for (let gx = 0; gx < GW; gx++) dev = Math.max(dev, Math.abs(cm[gx] / f.uin - 1));
+    if (f.bodies === 0 && dev < 0.05) {
+      const key = `${f.flip}:${f.hub ? 1 : 0}`;
+      let b = this.base.get(key);
+      if (!b) { b = new Float32Array(N * 2); b.n = 0; this.base.set(key, b); }
+      const a = 1 / Math.min(b.n + 1, 12); b.n++;
+      for (let i = 0; i < N; i++) { const inv = 1 / cm[i % GW]; b[2 * i] += (u[4 * i + 2] * inv - b[2 * i]) * a; b[2 * i + 1] += (u[4 * i + 3] * inv - b[2 * i + 1]) * a; }
+    }
+    // fan blockage: the most-blocked column of the slice in the 1.4 m above the fan, hub left out
+    const o = f.obs, hubId = f.hub ? 0 : -1, fx = Math.round((f.flip > 0 ? TUN.fanX : TUN.L - TUN.fanX) / DX);
+    let worst = 0;
+    for (let gx = Math.max(0, fx - Math.round(1.4 / DX)); gx <= Math.min(GW - 1, fx); gx++) {
+      let n = 0;
+      for (let gy = 0; gy < GH; gy++) { const k = (gy * GW + gx) * 4; if (o[k] < 0 && o[k + 1] !== hubId) n++; }
+      worst = Math.max(worst, n / GH);
+    }
+    f.block = worst;
+    this.field = f;
+  }
+
+  // bilinear sample of a 2-component field (stride 4 at offset 2 for the raw read, stride 2 for the reference)
+  sampleAt(arr, stride, off, gx, gy, out) {
+    const x = Math.max(0, Math.min(GW - 1.001, gx)), y = Math.max(0, Math.min(GH - 1.001, gy));
+    const i = Math.floor(x), j = Math.floor(y), fx = x - i, fy = y - j;
+    const k00 = (j * GW + i) * stride + off, k10 = k00 + stride, k01 = k00 + GW * stride, k11 = k01 + stride;
+    for (let c = 0; c < 2; c++) {
+      out[c] = (arr[k00 + c] * (1 - fx) + arr[k10 + c] * fx) * (1 - fy) + (arr[k01 + c] * (1 - fx) + arr[k11 + c] * fx) * fy;
+    }
+    return out;
+  }
+
+  // the slice's correction to the game's air for one body, tube frame (m/s). False when there is none.
+  nudge(rec, t, air, out) {
+    out[0] = out[1] = out[2] = 0;
+    const f = this.field;
+    if (!this.fresh() || air.U < 1 || t.x < 0 || t.x > TUN.L) return false;
+    const r = Math.max(rec.radius || 0.3, 0.3);
+    const off = Math.abs(t.y * f.n.y + t.z * f.n.z);
+    const w = BLEND * Math.exp(-((off / r) ** 2));
+    if (w < 0.02) return false;
+    // look just upstream of the body, clear of its own outline
+    const xs = f.flip > 0 ? t.x : TUN.L - t.x, s = t.y * f.e.y + t.z * f.e.z;
+    const gx = xs / DX - (r / DX + 2), gy = (s + R) / DX;
+    if (gx < 1) return false;
+    const fanS = (f.flip > 0 ? TUN.fanX : TUN.L - TUN.fanX) / DX;
+    const ref = this.base.get(`${f.flip}:${f.hub ? 1 : 0}`);
+    if (!ref && f.hub && gx > fanS - 1.8 / DX && gx < fanS + 1 / DX) return false;   // no reference yet: keep out of the hub's own disturbance
+    const cm = f.colMean, ci = Math.max(0, Math.min(GW - 1, Math.round(gx)));
+    const us = this.sampleAt(f.u, 4, 2, gx, gy, S1), inv = 1 / cm[ci];
+    const ub = ref ? this.sampleAt(ref, 2, 0, gx, gy, S2) : B0;
+    let dx = (us[0] * inv - ub[0]) * air.U, de = (us[1] * inv - ub[1]) * air.U;
+    const m = Math.hypot(dx, de), cap = 0.7 * air.U;
+    if (m > cap) { dx *= cap / m; de *= cap / m; }
+    out[0] = w * dx * f.flip; out[1] = w * de * f.e.y; out[2] = w * de * f.e.z;
+    this.felt++; this.feltMax = Math.max(this.feltMax, -w * dx / air.U);
+    return true;
+  }
+
+  // a read-back from the last ~20 frames (and 3 s), so a slow device still gets its feedback
+  fresh() { const f = this.field; return !!(this.on && f && this.frame - f.frame < 20 && performance.now() - f.at < 3000); }
+
+  // how much the slice says the cross-section above the fan is blocked (0…~0.4 cut in the fan's flow)
+  blockage() {
+    const f = this.field;
+    if (!this.fresh()) return 0;
+    return BLEND * Math.min(0.85, f.block) ** 1.5;
   }
 
   dispose() { this.mesh.parent?.remove(this.mesh); this.tex.dispose(); this.solver.dispose(); }
 }
+
+const S1 = [0, 0], S2 = [0, 0], B0 = [1, 0];
 
 function hull2(pts) {
   pts = pts.slice().sort((a, b) => a[0] - b[0] || a[1] - b[1]);

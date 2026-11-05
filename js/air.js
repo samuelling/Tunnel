@@ -7,6 +7,8 @@
 //  • Free-stream turbulence as a sum of random Fourier modes that are divergence-free by
 //    construction (amplitude ⟂ wavevector), with a Kolmogorov-like k^-5/6 amplitude spectrum,
 //    advected with the flow (Taylor's frozen-turbulence hypothesis).
+//  • With Real Air on, two corrections from the lattice-Boltzmann slice (js/realair.js): a per-body
+//    nudge (wakes, drafting, shielding, jets round things) and a blockage that cuts the fan's flow.
 import { TUN, FAN, NU, PORTAL } from './config.js';
 
 export class Air {
@@ -18,6 +20,8 @@ export class Air {
     this.omega = 0;
     this.gust = 0;
     this.dir = 1; this.Us = 0; this.flowDir = 1;
+    this.nudge = null;          // [x,y,z] m/s added to mean() while one body's loads are worked out
+    this.block = 0; this.blockT = 0;   // share of the fan's flow lost to things jammed above it
     const modes = [];
     let e = 0;
     for (let i = 0; i < 14; i++) {
@@ -47,6 +51,8 @@ export class Air {
     // other way, but less efficiently (reversed axial fans deliver ~60–70% of their forward flow)
     if (Math.abs(omega) > 0.3) this.dir = omega >= 0 ? 1 : -1;
     let target = FAN.phi * Math.abs(omega) * FAN.Rtip * (omega < 0 ? FAN.reverseEff : 1);
+    this.block += (this.blockT - this.block) * (1 - Math.exp(-dt / 0.5));
+    target *= 1 - this.block;
     if (this.gust > 0) { target *= 1 + 0.5 * Math.sin(Math.PI * (1 - this.gust / 2.5)) ** 2; this.gust = Math.max(0, this.gust - dt); }
     // the air column has to stop before it can reverse: track a signed speed, report its size
     this.Us = this.Us ?? 0;
@@ -111,6 +117,8 @@ export class Air {
       if (r > 1e-3) { uy += (-swirl * dz - sink * dy) / r; uz += (swirl * dy - sink * dz) / r; }
       ux += (2 + 0.1 * Uf) * s * Math.exp(-((r / PORTAL.R) ** 2));
     }
+    const nu = this.nudge;
+    if (nu) { ux += nu[0]; uy += nu[1]; uz += nu[2]; }
     out[0] = ux; out[1] = uy; out[2] = uz; out[3] = tf;
     return out;
   }

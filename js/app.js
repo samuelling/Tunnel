@@ -317,11 +317,14 @@ function breakBody(rec, E, vNew, hitPoint, quiet = false) {
 }
 
 // ------------------------------------------------------------------------------- physics
-const loads = new Float32Array(6), wv = new Float32Array(4);
+const loads = new Float32Array(6), wv = new Float32Array(4), nud = [0, 0, 0];
 const fanC = new THREE.Vector3(TUN.fanX, TUN.y0, 0);
 
 function physicsStep(dt) {
   rotor.step(dt);
+  const realAirFeel = !!(realAir && realAirMode !== 'off' && !(ride && ride.covered));
+  if (realAirFeel) realAir.felt = 0;
+  air.blockT = realAirFeel ? realAir.blockage() : 0;
   air.update(dt, rotor.omega * flowEff());
   world.timestep = dt;
 
@@ -329,9 +332,12 @@ function physicsStep(dt) {
     const b = rec.body;
     if (b.isSleeping() && air.U < 0.5) continue;
     const t = b.translation(), q = b.rotation(), v = b.linvel(), w = b.angvel();
+    // Real Air on: the lattice-Boltzmann slice adjusts the air this body feels (its wakes, jets, shielding)
+    air.nudge = realAirFeel && realAir.nudge(rec, t, air, nud) ? nud : null;
     aeroLoads(rec, air, t, q, v, w, loads);
     // implicit-ish limiter: an aero impulse may not reverse the relative wind in one step
     air.vel(t.x, t.y, t.z, wv, false);
+    air.nudge = null;
     const rx = wv[0] - v.x, ry = wv[1] - v.y, rz = wv[2] - v.z;
     const rel = Math.hypot(rx, ry, rz) + 0.5;
     const F = Math.hypot(loads[0], loads[1], loads[2]);
@@ -957,7 +963,8 @@ function stepHole(dt) {
 
 // ------------------------------------------------------------------------------- real air
 // The lab's lattice-Boltzmann solver on a slice through the tube, drawn as a glowing cut-away
-// (js/realair.js). Visual only for now: the game's physics still uses its own air model.
+// (js/realair.js). It also feeds back: bodies near the slice feel its wakes and jets, and things
+// jammed above the fan cut the flow (see realair.js and air.js).
 let realAir = null, realAirMode = 'off', realAirBroken = false;
 function setRealAir(mode, quiet) {
   if (mode !== 'off' && !realAir && !realAirBroken) {
@@ -970,7 +977,7 @@ function setRealAir(mode, quiet) {
   realAir?.setVisible(mode !== 'off'); realAir?.setMode(mode);
   $('btnAir').classList.toggle('on', mode !== 'off');
   $('airName').textContent = mode === 'off' ? '' : mode === 'smoke' ? 'SMOKE' : 'SWIRL';
-  if (!quiet) toast(mode === 'off' ? 'Real air off' : mode === 'smoke' ? '🔬 Real air: lattice-Boltzmann CFD on a slice through the tube (smoke)' : '🔬 Real air: the same slice, coloured by swirl (vorticity)');
+  if (!quiet) toast(mode === 'off' ? 'Real air off' : mode === 'smoke' ? '🔬 Real air: lattice-Boltzmann CFD on a slice through the tube, now steering the physics (smoke)' : '🔬 Real air: the same slice, coloured by swirl (vorticity)');
 }
 
 // ------------------------------------------------------------------------------- the lab
@@ -2009,6 +2016,6 @@ function addGenerated(raw) {
   return r;
 }
 
-window.tunnel = { get pileCam() { return pileCam; }, openHatch: () => openPayloadHatch('lever'), get payload() { return payloadStat; }, get hatchState() { return hatchState; }, pile, share: () => openShare(), phys: (id) => recipePhys(recipes.find(r => r.id === id)), recipes: () => recipes, repair: () => repairFan(), get jam() { return jam; }, bladeDmg, addRecipe: addGenerated, get bodies() { return bodies; }, rotor: () => rotor, air: () => air, spawn: (id, x = -1.4) => spawnRecipe(recipes.find(r => r.id === id), new THREE.Vector3(x, (Math.random() - 0.5) * 0.6, (Math.random() - 0.5) * 0.6), new THREE.Vector3(2, 0, 0)), get drops() { return drops; }, setThrottle: (v) => { $('throttle').value = v; $('throttle').oninput(); }, setCamera, arm: (id) => arm(recipes.find(r => r.id === id)) };
+window.tunnel = { get pileCam() { return pileCam; }, get realAir() { return realAir; }, openHatch: () => openPayloadHatch('lever'), get payload() { return payloadStat; }, get hatchState() { return hatchState; }, pile, share: () => openShare(), phys: (id) => recipePhys(recipes.find(r => r.id === id)), recipes: () => recipes, repair: () => repairFan(), get jam() { return jam; }, bladeDmg, addRecipe: addGenerated, get bodies() { return bodies; }, rotor: () => rotor, air: () => air, spawn: (id, x = -1.4) => spawnRecipe(recipes.find(r => r.id === id), new THREE.Vector3(x, (Math.random() - 0.5) * 0.6, (Math.random() - 0.5) * 0.6), new THREE.Vector3(2, 0, 0)), get drops() { return drops; }, setThrottle: (v) => { $('throttle').value = v; $('throttle').oninput(); }, setCamera, arm: (id) => arm(recipes.find(r => r.id === id)) };
 
 boot().catch(e => { console.error(e); fail(e.message); });
