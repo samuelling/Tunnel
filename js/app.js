@@ -1077,22 +1077,30 @@ function tubeFrame(now) {
   const i = ride.hops.findLastIndex(h => ride.u >= h.at);
   if (i !== ride.hopShown && i >= 0) { ride.hopShown = i; caption(ride.hops[i].hop, ride.hops[i].sub); audio.hit(i === ride.hops.length - 1 ? 'zap' : 'pop', 900); }
   tube.frame(ride.u, ride.tt, dt);
-  if (x >= 1) { exitTube(); return; }
+  if (x >= 1) {
+    // the Shred Pile is still unpacking: hang in the portal's glow for a moment (at most 6 s) so you land on the whole heap
+    if (pileCam && !pileCam.ready && ride.tt < RIDE_SECONDS + 6) { if (!ride.holding) { ride.holding = true; caption('ARRIVING…', 'The Shred Pile is unpacking itself'); } }
+    else { exitTube(); return; }
+  }
   requestAnimationFrame(tubeFrame);
 }
+
+function skipTube() { if (ride?.phase !== 'tube') return; if (ride.hops) ride.tt = Math.max(ride.tt, RIDE_SECONDS); else exitTube(); }
 
 function exitTube() {
   if (!ride || ride.phase === 'pile') return;
   ride.phase = 'pile';
   flash(); audio.whoosh?.(80);
   const pc = pileCam, d = ride.drop;
+  // split view showing the live world hides this canvas: show it for the landing
+  ride.canvasWasHidden = $('pileCanvas').hidden; $('pileCanvas').hidden = false;
   $('ridePile').appendChild($('pileCanvas'));
   $('ride').classList.add('pile');
   $('rideSkip').hidden = true;
   pc.hidden = false; if (!pc.running) pc.start();
   requestAnimationFrame(() => pc.resize());
   caption('THE SHRED PILE', d ? `${(d.pieces?.length || 0).toLocaleString()} pieces, landing now` : 'Here it all ends up');
-  const done = () => { $('rideBack').hidden = false; caption('DELIVERED', `${pc.total.pieces.toLocaleString()} pieces on the Shred Pile now. Look around, or head back.`); };
+  const done = () => { $('rideBack').hidden = false; $('rideLive').hidden = !worldBuilderUrl(); caption('DELIVERED', `${pc.total.pieces.toLocaleString()} pieces on the Shred Pile now. Look around, or head back.`); };
   if (d && d.pieces?.length) pc.rideIn(d, done); else done();
 }
 
@@ -1100,10 +1108,25 @@ function endRide() {
   if (!ride) return;
   const pc = pileCam, r = ride;
   ride = null;
+  rideLive(false); $('rideLive').hidden = true;
+  if (r.canvasWasHidden) $('pileCanvas').hidden = true;
   if (pc) { pc.ride = null; pc.controls.enabled = true; pc.hidden = false; r.pileWasHere.appendChild($('pileCanvas')); if (!r.pileWasRunning || !document.body.classList.contains('split') || (flipping() && !onPile)) pc.stop(); else pc.resize(); }
   $('ride').hidden = true; $('ride').classList.remove('pile');
   controls.enabled = true;
   setCamera(0, true); resize();
+}
+// after landing: peek at the same heap in Matt's live World Builder, right here (Pile Cam rests meanwhile)
+function rideLive(on) {
+  const f = $('rideFrame');
+  if (ride) ride.live = on;
+  $('ride').classList.toggle('live', on);
+  $('rideLive').textContent = on ? '🗑 Back to our view of the pile' : '🌐 See it live in World Builder';
+  if (on) { if (f.src !== worldBuilderUrl()) f.src = worldBuilderUrl(); caption('WORLD BUILDER, LIVE', 'The same Shred Pile in Matt\'s world. Drag to look around.'); }
+  else {
+    if (f.getAttribute('src') && f.getAttribute('src') !== 'about:blank') f.src = 'about:blank';
+    if (ride?.phase === 'pile' && pileCam) caption('THE SHRED PILE', `${pileCam.total.pieces.toLocaleString()} pieces and counting`);
+  }
+  if (pileCam && ride?.phase === 'pile') pileCam.hidden = on;
 }
 // reserve the payload in Pile Cam as soon as its id is known, so polling doesn't land it early
 function reserveForRide(d) { if (ride && pileCam && d?.id) pileCam.reserved.add(d.id); }
@@ -1484,9 +1507,10 @@ function buildUI() {
   $('plLever').onclick = () => openPayloadHatch('lever');
   setRideToggle(rideOn());
   $('plRide').onclick = () => { setRideToggle(!rideOn()); toast(rideOn() ? '🎢 Ride along is on: pull FLUSH! and go with the payload' : 'Ride along is off'); };
-  $('rideSkip').onclick = () => { if (ride?.phase === 'tube') exitTube(); };
+  $('rideSkip').onclick = skipTube;
+  $('rideLive').onclick = () => rideLive(!ride?.live);
   $('rideBack').onclick = endRide;
-  addEventListener('keydown', (e) => { if (!ride || e.key !== 'Escape') return; if (ride.phase === 'tube') exitTube(); else if (ride.phase === 'pile' && !$('rideBack').hidden) endRide(); });
+  addEventListener('keydown', (e) => { if (!ride || e.key !== 'Escape') return; if (ride.phase === 'tube') skipTube(); else if (ride.phase === 'pile' && !$('rideBack').hidden) endRide(); });
   addEventListener('resize', () => { if (ride?.phase === 'tube') tube?.resize(); });
   document.addEventListener('visibilitychange', () => { if (document.hidden) flushInstantly(); });
   addEventListener('pagehide', flushInstantly);

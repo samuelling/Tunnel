@@ -451,7 +451,7 @@ export class PileCam {
 
   // ---- mailbox
   async poll() {
-    if (this.busy || !this.mailbox) return;
+    if (this.busy || this.backlog?.length || !this.mailbox) return;
     this.busy = true;
     try {
       const r = await fetch(`${this.mailbox}?since=${this.first ? 0 : this.lastAt}`, { cache: 'no-store' });   // a plain GET: no CORS preflight
@@ -459,20 +459,32 @@ export class PileCam {
         const j = await r.json();
         const got = (Array.isArray(j.drops) ? j.drops : []).map(inflateDrop).sort((a, b) => a.at - b.at);
         let fresh = 0;
+        const backlog = [];
         for (const d of got) {
           const key = d.id || `${d.at}:${d.object?.name}`;
           if (this.seen.has(key) || this.reserved.has(key) || !Array.isArray(d.pieces)) continue;   // a ride brings that one in itself
           fresh++;
-          if (this.first) { this.seen.add(key); this.lastAt = Math.max(this.lastAt, d.at || 0); this.settleDrop(d); }
+          if (this.first) { this.seen.add(key); this.lastAt = Math.max(this.lastAt, d.at || 0); backlog.push(d); }
           else this.arrive(d);
         }
-        if (this.first) this.drawBoard();
+        // the whole heap (tens of thousands of pieces) is built a few drops per frame, so
+        // whatever else is on screen (the tube ride, the tunnel) keeps running smoothly
+        if (this.first) { this.backlog = backlog; if (!backlog.length) this.heapBuilt(); }
         else this.setPace(fresh ? POLL : Math.min(POLL_MAX, this.pollEvery * 1.5));
         this.first = false;
       }
     } catch { /* offline: try again next time */ }
     this.busy = false;
   }
+
+  // settle the first load's drops, oldest first, for up to ~7 ms a frame (at least one a frame)
+  stepBacklog() {
+    const t0 = performance.now();
+    do this.settleDrop(this.backlog.shift()); while (this.backlog.length && performance.now() - t0 < 7);
+    if (!this.backlog.length) this.heapBuilt();
+  }
+  heapBuilt() { this.backlog = null; this.drawBoard(); this.onReady?.(); }
+  get ready() { return !this.first && !this.backlog?.length; }
 
   setPace(sec) {
     this.pollEvery = sec;
@@ -510,6 +522,7 @@ export class PileCam {
       this.beam.material.opacity = 0.04 + 0.05 * this.uniforms.uPulse.value;
       this.pollClock += dt;
       if (this.pollClock >= this.pollEvery && !document.hidden) { this.pollClock = 0; this.poll(); }
+      if (this.backlog?.length) this.stepBacklog();
       if (this.arriving.length) this.emerge(dt);
       if (this.falling.length) this.fall(dt);
       this.stepCompactor(dt);

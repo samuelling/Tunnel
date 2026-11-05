@@ -160,7 +160,8 @@ export class DropCollector {
         if (res.ok) {
           ok = true;
           // the relay assigns the drop's id (which seeds its place on the pile); keep it
-          if (url.includes('workers.dev') || url.endsWith('/drops')) { try { const j = await res.json(); if (j && j.id) { drop.id = j.id; drop.at = j.at || drop.at; for (const [k, v] of [['_colo', j.colo], ['_fuelLeft', j.fuelLeft]]) Object.defineProperty(drop, k, { value: v, writable: true, configurable: true }); } } catch (e) { /* not json */ } }
+          // (only our own mailbox's id: World Builder's own id would mislabel it in Pile Cam)
+          if (isRelay(url) || (!WORKER_URL && url.endsWith('/drops'))) { try { const j = await res.json(); if (j && j.id) { drop.id = j.id; drop.at = j.at || drop.at; for (const [k, v] of [['_colo', j.colo], ['_fuelLeft', j.fuelLeft]]) Object.defineProperty(drop, k, { value: v, writable: true, configurable: true }); } } catch (e) { /* not json */ } }
         }
       } catch (e) { /* unreachable target */ }
     }));

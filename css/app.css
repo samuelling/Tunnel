@@ -388,8 +388,15 @@ body.split.flip #pane .paneBar b { white-space: nowrap; overflow: hidden; text-o
 .rideTop { position: absolute; left: 0; right: 0; top: calc(10px + var(--st)); display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 0 14px; pointer-events: none; }
 #rideStats { font: 600 12px var(--mono); color: #9fe8ff; text-shadow: 0 1px 6px #000; white-space: pre-line; }
 #rideSkip, #rideBack { pointer-events: auto; background: rgba(10,8,20,.7); border: 1px solid #6b3fb0; color: #e9d8ff; border-radius: 999px; padding: 8px 14px; font: 800 13px var(--sans); cursor: pointer; backdrop-filter: blur(6px); }
-#rideBack { position: absolute; left: 50%; bottom: calc(26px + var(--sb)); transform: translateX(-50%); padding: 12px 22px; font-size: 15px; background: var(--y); color: #111; border: 0; box-shadow: 0 8px 24px rgba(0,0,0,.5); }
-#rideBack[hidden], #rideSkip[hidden] { display: none; }
+#ride .rideBtns { position: absolute; left: 50%; bottom: calc(26px + var(--sb)); transform: translateX(-50%); display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; width: max-content; max-width: calc(100% - 24px); z-index: 3; }
+#rideBack { padding: 12px 22px; font-size: 15px; background: var(--y); color: #111; border: 0; box-shadow: 0 8px 24px rgba(0,0,0,.5); }
+#rideLive { pointer-events: auto; padding: 12px 18px; font: 800 15px var(--sans); background: rgba(10,8,20,.78); color: #7df9ff; border: 1px solid #2aa9b8; border-radius: 999px; cursor: pointer; box-shadow: 0 8px 24px rgba(0,0,0,.5); backdrop-filter: blur(6px); }
+#rideBack[hidden], #rideSkip[hidden], #rideLive[hidden] { display: none; }
+#rideFrame { position: absolute; inset: 0; z-index: 1; width: 100%; height: 100%; border: 0; background: #05030c; opacity: 0; pointer-events: none; transition: opacity .35s; }
+#ride.live #rideFrame { opacity: 1; pointer-events: auto; }
+#ride.live #ridePile { opacity: 0; }
+#ride .rideCap, #ride .rideTop { z-index: 2; }
+#ride.live .rideCap { opacity: 0; transition: opacity .3s 2.5s; }
 .rideCap { position: absolute; left: 50%; bottom: calc(90px + var(--sb)); transform: translateX(-50%); text-align: center; width: min(640px, 92vw); pointer-events: none; }
 .rideHop { font: clamp(26px, 6vw, 52px)/1 var(--disp); color: #7df9ff; letter-spacing: .04em; text-shadow: 0 0 18px rgba(125,249,255,.6), 0 2px 0 #000; }
 .rideSub { margin-top: 8px; font: 600 clamp(13px, 2.4vw, 16px) var(--sans); color: #f0e8ff; text-shadow: 0 1px 8px #000; }
