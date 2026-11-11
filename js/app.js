@@ -535,6 +535,34 @@ function bladeLoad(k, F, contact, rec) {
   updateDamageUI();
 }
 
+// Too big for the intake: anything whose outline reaches past the tube wall as it meets the rim
+// snaps there, first into its parts (the wings come off), then any part still too wide breaks
+// again. Checked a few times a second per body while it's at the rim.
+const _rimBox = new THREE.Box3(), _rimP = new THREE.Vector3();
+let rimToastAt = 0;
+function rimSnap(rec, t) {
+  if (rec.level >= 3 || simTime < (rec.rimNext || 0)) return false;
+  rec.rimNext = simTime + 0.12;
+  _rimBox.setFromObject(rec.group);   // world space
+  let worst = 0, wy = 0, wz = 0;
+  for (let k = 0; k < 8; k++) {
+    _rimP.set(k & 1 ? _rimBox.max.x : _rimBox.min.x, k & 2 ? _rimBox.max.y : _rimBox.min.y, k & 4 ? _rimBox.max.z : _rimBox.min.z);
+    rig.worldToLocal(_rimP);
+    if (_rimP.x < -0.2) continue;   // only what's already at or past the rim
+    const r = Math.hypot(_rimP.y, _rimP.z);
+    if (r > worst) { worst = r; wy = _rimP.y; wz = _rimP.z; }
+  }
+  if (worst < TUN.R + 0.4) return false;
+  const v = rec.body.linvel(), ph = physFor(rec);
+  const E = Math.max(1.6 * ph.Ebreak, 0.5 * rec.mass * (v.x * v.x + v.y * v.y + v.z * v.z) * 0.3);
+  const hit = { x: 0, y: wy / worst * TUN.R, z: wz / worst * TUN.R };
+  heavyImpact(hit, Math.max(E, 2e5));
+  audio.hit('clang', 1e6);
+  if (performance.now() - rimToastAt > 6000 && rec.level === 0) { rimToastAt = performance.now(); toast(`💥 ${rec.recipe.icon || ''} ${rec.recipe.name} is wider than the 14 m intake: the rim snapped it`); }
+  breakBody(rec, rec.level === 0 && rec.parts.length > 1 ? Math.min(E, 2 * ph.Ebreak) : Math.max(E, 3 * ph.Ebreak), new THREE.Vector3(v.x, v.y, v.z), hit);
+  return true;
+}
+
 // weight you can feel: the camera shakes, a deep rumble, and a billow of grime, all growing with
 // the energy (a hatchback into the fan is ~10 MJ, a container landing on the chute ~1 MJ)
 let lastRumble = 0;
@@ -1545,6 +1573,7 @@ function loop(now) {
     rec.group.position.set(t.x, t.y, t.z);
     rec.group.quaternion.set(q.x, q.y, q.z, q.w);
     const rr = Math.hypot(t.y, t.z);
+    if (rec.radius > TUN.R - 0.5 && t.x > -rec.radius - 0.5 && t.x < rec.radius + 1 && rimSnap(rec, t)) continue;
     if (t.x > TUN.groundX - 1.4 * S - rec.radius && rr < PORTAL.R * 0.95) absorb(rec);
     else if (t.x > TUN.groundX + 2 * S || t.x < -40 * S || Math.abs(t.y) > 40 * S || Math.abs(t.z) > 40 * S) removeBody(rec, 'exit');
     else if (rec.level > 0 && t.x > TUN.groundX - 0.8 * S && simTime - rec.born > 90) removeBody(rec, 'dissolve');
@@ -1899,7 +1928,8 @@ function pullHatch() {
   if (wantPush(armed, rad)) { startPush(armed); if (compactUI()) $('card').hidden = true; return; }
   const lim = Math.max(0, Math.min(0.35 * S, TUN.R - rad - 0.3));
   const a = Math.random() * Math.PI * 2, r = Math.random() * lim;
-  const wp = new THREE.Vector3(Math.cos(a) * r, TUN.groundX + 1.4 + Math.min(1.2, rad * 0.6), Math.sin(a) * r);
+  // giants start well clear of the rim, so you see them fall onto it
+  const wp = new THREE.Vector3(Math.cos(a) * r, TUN.groundX + 1.4 + (rad > TUN.R - 0.5 ? rad + 2 : Math.min(1.2, rad * 0.6)), Math.sin(a) * r);
   const wv = new THREE.Vector3((Math.random() - 0.5) * 0.3, -3, (Math.random() - 0.5) * 0.3);
   spawnRecipe(armed, rig.worldToLocal(wp), wv.applyQuaternion(qInv()));
   if (compactUI()) $('card').hidden = true;
@@ -2213,6 +2243,6 @@ function addGenerated(raw) {
   return r;
 }
 
-window.tunnel = { pushSeek: (tt) => { if (push) push.tt = tt; }, get push() { return push && { tt: push.tt, T: push.slideT + push.tipT + push.fallT, r: push.r0, rFin: push.rFin }; }, get heavyLog() { return heavyLog; }, get shake() { return shake; }, get pileCam() { return pileCam; }, camAt: (p, t) => { camTween = null; camera.position.set(...p); controls.target.set(...t); controls.update(); }, get realAir() { return realAir; }, openHatch: () => openPayloadHatch('lever'), get payload() { return payloadStat; }, get hatchState() { return hatchState; }, pile, share: () => openShare(), phys: (id) => recipePhys(recipes.find(r => r.id === id)), recipes: () => recipes, repair: () => repairFan(), get jam() { return jam; }, bladeDmg, addRecipe: addGenerated, get bodies() { return bodies; }, rotor: () => rotor, air: () => air, spawn: (id, x = -1.4) => spawnRecipe(recipes.find(r => r.id === id), new THREE.Vector3(x, (Math.random() - 0.5) * 0.6, (Math.random() - 0.5) * 0.6), new THREE.Vector3(2, 0, 0)), get drops() { return drops; }, setThrottle: (v) => { $('throttle').value = v; $('throttle').oninput(); }, setCamera, arm: (id) => arm(recipes.find(r => r.id === id)) };
+window.tunnel = { addRecipe: (raw) => { addGenerated(raw); return recipes[recipes.length - 1].id; }, pushSeek: (tt) => { if (push) push.tt = tt; }, get push() { return push && { tt: push.tt, T: push.slideT + push.tipT + push.fallT, r: push.r0, rFin: push.rFin }; }, get heavyLog() { return heavyLog; }, get shake() { return shake; }, get pileCam() { return pileCam; }, camAt: (p, t) => { camTween = null; camera.position.set(...p); controls.target.set(...t); controls.update(); }, get realAir() { return realAir; }, openHatch: () => openPayloadHatch('lever'), get payload() { return payloadStat; }, get hatchState() { return hatchState; }, pile, share: () => openShare(), phys: (id) => recipePhys(recipes.find(r => r.id === id)), recipes: () => recipes, repair: () => repairFan(), get jam() { return jam; }, bladeDmg, addRecipe: addGenerated, get bodies() { return bodies; }, rotor: () => rotor, air: () => air, spawn: (id, x = -1.4) => spawnRecipe(recipes.find(r => r.id === id), new THREE.Vector3(x, (Math.random() - 0.5) * 0.6, (Math.random() - 0.5) * 0.6), new THREE.Vector3(2, 0, 0)), get drops() { return drops; }, setThrottle: (v) => { $('throttle').value = v; $('throttle').oninput(); }, setCamera, arm: (id) => arm(recipes.find(r => r.id === id)) };
 
 boot().catch(e => { console.error(e); fail(e.message); });
