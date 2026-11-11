@@ -3,7 +3,7 @@
 // physics tube frame (x down the axis) upright: world = (y, groundX − x, z).
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
-import { TUN, FAN, PORTAL } from './config.js';
+import { TUN, TUN0, FAN, FAN0, PORTAL, PORTAL0, S } from './config.js';
 
 export function createRenderer(canvas, lowPower) {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: !lowPower, powerPreference: 'high-performance' });
@@ -32,7 +32,7 @@ export const toWorld = (x, y, z) => new THREE.Vector3(y, TUN.groundX - x, z);
 export function buildScene(renderer) {
   const scene = new THREE.Scene();
   scene.background = new THREE.Color('#0a0b10');
-  scene.fog = new THREE.Fog('#0a0b10', 34, 85);
+  scene.fog = new THREE.Fog('#0a0b10', 34 * S, 85 * S);
   const pmrem = new THREE.PMREMGenerator(renderer);
   scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
   scene.environmentIntensity = 0.5;
@@ -45,15 +45,15 @@ export function buildScene(renderer) {
   // lights
   scene.add(new THREE.HemisphereLight('#9fb4cc', '#2a2620', 0.45));
   const key = new THREE.DirectionalLight('#fff3e2', 2.1);
-  key.position.set(9, 30, 14);
-  key.target.position.set(0, 7, 0);
+  key.position.set(9 * S, 30 * S, 14 * S);
+  key.target.position.set(0, 7 * S, 0);
   key.castShadow = true;
   key.shadow.mapSize.set(2048, 2048);
-  Object.assign(key.shadow.camera, { left: -14, right: 14, top: 16, bottom: -14, near: 1, far: 70 });
-  key.shadow.bias = -0.0004; key.shadow.normalBias = 0.02;
+  Object.assign(key.shadow.camera, { left: -14 * S, right: 14 * S, top: 16 * S, bottom: -14 * S, near: 1, far: 70 * S });
+  key.shadow.bias = -0.0004; key.shadow.normalBias = 0.02 * S;
   scene.add(key, key.target);
-  const fill = new THREE.DirectionalLight('#7fa8ff', 0.45); fill.position.set(-12, 8, -10); scene.add(fill);
-  for (const x of [3, 8]) { const pl = new THREE.PointLight('#ffffff', 6, 9, 1.6); pl.position.copy(toWorld(x, 1.4, 0.6)); scene.add(pl); }
+  const fill = new THREE.DirectionalLight('#7fa8ff', 0.45); fill.position.set(-12 * S, 8 * S, -10 * S); scene.add(fill);
+  for (const x of [3, 8]) { const pl = new THREE.PointLight('#ffffff', 6 * S ** 1.6, 9 * S, 1.6); pl.position.copy(toWorld(x * S, 1.4 * S, 0.6 * S)); scene.add(pl); }
 
   // concrete floor
   const floorTex = canvasTex(1024, 1024, (c, w, h) => {
@@ -61,8 +61,8 @@ export function buildScene(renderer) {
     for (let i = 0; i < 26000; i++) { const g = 62 + Math.random() * 40; c.fillStyle = `rgba(${g},${g},${g + 3},${0.05 + Math.random() * 0.1})`; c.fillRect(Math.random() * w, Math.random() * h, 2 + Math.random() * 3, 2 + Math.random() * 3); }
     for (let i = 0; i < 18; i++) { c.fillStyle = `rgba(30,28,25,${0.02 + Math.random() * 0.035})`; c.beginPath(); c.ellipse(Math.random() * w, Math.random() * h, 30 + Math.random() * 90, 20 + Math.random() * 60, Math.random() * 3, 0, 7); c.fill(); }
     c.strokeStyle = 'rgba(25,25,25,0.6)'; c.lineWidth = 3; c.strokeRect(0, 0, w, h);
-  }, 12);
-  const floor = new THREE.Mesh(new THREE.PlaneGeometry(140, 140), new THREE.MeshStandardMaterial({ map: floorTex, roughness: 0.82, metalness: 0.05 }));
+  }, 12 * S);
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(140 * S, 140 * S), new THREE.MeshStandardMaterial({ map: floorTex, roughness: 0.82, metalness: 0.05 }));
   floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true; scene.add(floor);
 
   // a ring of stencilled warnings around the portal
@@ -75,21 +75,21 @@ export function buildScene(renderer) {
     c.fillStyle = 'rgba(255,198,26,0.85)'; c.font = `900 ${size.toFixed(1)}px Impact, "Arial Black", sans-serif`; c.textAlign = 'left';
     c.fillText(msg, 0, 128 + size * 0.36);
   });
-  const ring = new THREE.Mesh(new THREE.RingGeometry(PORTAL.R + 0.45, PORTAL.R + 1.25, 128, 1), new THREE.MeshStandardMaterial({ map: ringTex, transparent: true, roughness: 0.9, depthWrite: false }));
+  const ring = new THREE.Mesh(new THREE.RingGeometry((PORTAL0.R + 0.45) * S, (PORTAL0.R + 1.25) * S, 128, 1), new THREE.MeshStandardMaterial({ map: ringTex, transparent: true, roughness: 0.9, depthWrite: false }));
   // remap ring UVs so the text wraps around it
   const uv = ring.geometry.attributes.uv, pos = ring.geometry.attributes.position;
   for (let i = 0; i < uv.count; i++) {
     const x = pos.getX(i), y = pos.getY(i), r = Math.hypot(x, y);
-    uv.setXY(i, (0.5 - Math.atan2(y, x) / (2 * Math.PI)) * 2, (r - PORTAL.R - 0.45) / 0.8);   // clockwise from above, so it reads the right way round
+    uv.setXY(i, (0.5 - Math.atan2(y, x) / (2 * Math.PI)) * 2, (r / S - PORTAL0.R - 0.45) / 0.8);   // clockwise from above, so it reads the right way round
   }
   ringTex.wrapS = THREE.RepeatWrapping;
   ring.rotation.x = -Math.PI / 2; ring.position.y = 0.012; scene.add(ring);
 
   // hangar shell
-  const shell = new THREE.Mesh(new THREE.CylinderGeometry(52, 52, 36, 48, 1, true), new THREE.MeshStandardMaterial({ color: '#14171c', roughness: 0.9, side: THREE.BackSide }));
-  shell.position.set(0, 18, 0); scene.add(shell);
+  const shell = new THREE.Mesh(new THREE.CylinderGeometry(52 * S, 52 * S, 36 * S, 48, 1, true), new THREE.MeshStandardMaterial({ color: '#14171c', roughness: 0.9, side: THREE.BackSide }));
+  shell.position.set(0, 18 * S, 0); scene.add(shell);
   const lampMat = new THREE.MeshBasicMaterial({ color: '#fff6e4' });
-  for (let i = 0; i < 8; i++) { const a = i / 8 * Math.PI * 2; const lamp = new THREE.Mesh(new THREE.BoxGeometry(3, 0.12, 0.5), lampMat); lamp.position.set(Math.cos(a) * 18, 30, Math.sin(a) * 18); lamp.rotation.y = -a; scene.add(lamp); }
+  for (let i = 0; i < 8; i++) { const a = i / 8 * Math.PI * 2; const lamp = new THREE.Mesh(new THREE.BoxGeometry(3 * S, 0.12 * S, 0.5 * S), lampMat); lamp.position.set(Math.cos(a) * 18 * S, 30 * S, Math.sin(a) * 18 * S); lamp.rotation.y = -a; scene.add(lamp); }
 
   const tunnel = buildTunnel(rig);
   const tower = buildTower(scene);
@@ -98,8 +98,8 @@ export function buildScene(renderer) {
 }
 
 function buildTunnel(rig) {
-  const { R, L, fanX } = TUN;
-  const g = new THREE.Group();
+  const { R, L, fanX } = TUN0;   // drawn at 1×, the group is scaled by S
+  const g = new THREE.Group(); g.scale.setScalar(S);
   const steel = new THREE.MeshStandardMaterial({ color: '#4a5058', metalness: 0.85, roughness: 0.38 });
   const darkSteel = new THREE.MeshStandardMaterial({ color: '#23272d', metalness: 0.7, roughness: 0.45 });
 
@@ -142,8 +142,9 @@ function buildTunnel(rig) {
 
 // Steel tower holding the tube up, a catwalk at the top, signs and a warning beacon (world space).
 function buildTower(scene) {
-  const { R, L, fanX, groundX } = TUN;
-  const g = new THREE.Group();
+  const { R, L, fanX, groundX } = TUN0;   // drawn at 1× in a group scaled by S; railings stay human-sized
+  const g = new THREE.Group(); g.scale.setScalar(S);
+  const H = 1 / S;   // one real metre, in this group's units
   const yellow = new THREE.MeshStandardMaterial({ color: '#f2b311', metalness: 0.3, roughness: 0.5 });
   const dark = new THREE.MeshStandardMaterial({ color: '#2a2e35', metalness: 0.7, roughness: 0.45 });
   const top = groundX + 0.15, legR = R + 0.75;
@@ -175,11 +176,15 @@ function buildTower(scene) {
   // catwalk round the intake
   const deck = new THREE.Mesh(new THREE.RingGeometry(R + 0.6, R + 1.9, 64), new THREE.MeshStandardMaterial({ color: '#30353c', metalness: 0.75, roughness: 0.5, side: THREE.DoubleSide }));
   deck.rotation.x = -Math.PI / 2; deck.position.y = top - 0.05; deck.receiveShadow = true; deck.castShadow = true; g.add(deck);
-  const rail = new THREE.Mesh(new THREE.TorusGeometry(R + 1.85, 0.035, 6, 72), yellow);
-  rail.rotation.x = Math.PI / 2; rail.position.y = top + 1.05; g.add(rail);
-  for (let k = 0; k < 24; k++) {
-    const a = k / 24 * Math.PI * 2, p = new THREE.Mesh(new THREE.BoxGeometry(0.05, 1.05, 0.05), yellow);
-    p.position.set(Math.cos(a) * (R + 1.85), top + 0.52, Math.sin(a) * (R + 1.85)); g.add(p);
+  // waist-high handrail and knee rail (real size: 1.1 m and 0.55 m, posts every ~2 m)
+  for (const hh of [1.1, 0.55]) {
+    const rail = new THREE.Mesh(new THREE.TorusGeometry(R + 1.85, 0.03 * H, 6, 144), yellow);
+    rail.rotation.x = Math.PI / 2; rail.position.y = top + hh * H; g.add(rail);
+  }
+  const nPost = Math.round(2 * Math.PI * (R + 1.85) * S / 2);
+  for (let k = 0; k < nPost; k++) {
+    const a = k / nPost * Math.PI * 2, p = new THREE.Mesh(new THREE.BoxGeometry(0.05 * H, 1.1 * H, 0.05 * H), yellow);
+    p.position.set(Math.cos(a) * (R + 1.85), top + 0.55 * H, Math.sin(a) * (R + 1.85)); g.add(p);
   }
   // signs
   const sign = (text, sub, w, h, pos, ry, bg = '#f2b311', fg = '#111') => {
@@ -194,13 +199,13 @@ function buildTower(scene) {
   };
   const sy = groundX - fanX;
   sign('THE SHRED HOLE', 'FAN DIVISION · AUTHORISED DUCKS ONLY', 4.4, 1.15, new THREE.Vector3(0, top + 2.1, 0), Math.PI / 4);
-  const post = new THREE.Mesh(new THREE.BoxGeometry(0.1, 1.1, 0.1), dark); post.position.set(0, top + 1.0, 0); g.add(post);
+  const post = new THREE.Mesh(new THREE.BoxGeometry(0.1, 1.6, 0.1), dark); post.position.set(0, top + 0.8, 0); g.add(post);
   sign('BLADES', 'DO NOT FEED · ESPECIALLY NOT DUCKS', 2.4, 0.8, new THREE.Vector3(Math.cos(Math.PI / 4) * (R + 0.95), sy + 1.6, Math.sin(Math.PI / 4) * (R + 0.95)), -Math.PI / 4 + Math.PI / 2);
   // beacon on the catwalk
   const beaconMat = new THREE.MeshStandardMaterial({ color: '#ff6a00', emissive: '#ff6a00', emissiveIntensity: 0.2, transparent: true, opacity: 0.9 });
   const beacon = new THREE.Mesh(new THREE.SphereGeometry(0.18, 16, 12), beaconMat);
   beacon.position.set(-(R + 1.5), top + 1.35, 0); g.add(beacon);
-  const beaconLight = new THREE.SpotLight('#ff7a1a', 0, 26, 0.35, 0.5, 1.2);
+  const beaconLight = new THREE.SpotLight('#ff7a1a', 0, 26 * S, 0.35, 0.5, 1.2);
   beaconLight.position.copy(beacon.position); g.add(beaconLight); g.add(beaconLight.target);
   scene.add(g);
   return { tower: g, beacon, beaconMat, beaconLight };
@@ -209,7 +214,8 @@ function buildTower(scene) {
 // The vortex portal: an animated spiral shader in the floor with an event-horizon centre,
 // a glowing rim, a light that washes the tower in purple, and a faint up-beam.
 function buildPortal(scene) {
-  const g = new THREE.Group();
+  const g = new THREE.Group(); g.scale.setScalar(S);   // drawn at 1×
+  const PORTAL = PORTAL0, TUN = TUN0;
   const uniforms = { uTime: { value: 0 }, uPulse: { value: 0 } };
   const mat = new THREE.ShaderMaterial({
     uniforms, transparent: true, depthWrite: false,
@@ -253,7 +259,7 @@ function buildPortal(scene) {
   const beam = new THREE.Mesh(new THREE.CylinderGeometry(PORTAL.R * 0.75, PORTAL.R, TUN.groundX - TUN.L, 48, 1, true),
     new THREE.MeshBasicMaterial({ color: '#8b5cff', transparent: true, opacity: 0.06, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
   beam.position.y = (TUN.groundX - TUN.L) / 2; g.add(beam);
-  const light = new THREE.PointLight('#9b5cff', 40, 18, 1.4); light.position.y = 1.2; g.add(light);
+  const light = new THREE.PointLight('#9b5cff', 40, 18 * S, 1.4); light.position.y = 1.2; g.add(light);
   scene.add(g);
   let pulse = 0;
   return {
@@ -264,7 +270,7 @@ function buildPortal(scene) {
       uniforms.uTime.value = t; uniforms.uPulse.value = pulse;
       runes.rotation.y = t * 0.35;
       runes.children.forEach((m, i) => { m.rotation.x = t * 1.3 + i; m.position.y = 0.7 + Math.sin(t * 1.6 + i) * 0.25; });
-      light.intensity = 40 + 25 * Math.sin(t * 3) + pulse * 120;
+      light.intensity = (40 + 25 * Math.sin(t * 3) + pulse * 120) * S ** 1.4;
       rimMat.emissiveIntensity = 1.4 + 0.4 * Math.sin(t * 2.2) + pulse;
       beam.material.opacity = 0.05 + 0.04 * pulse;
     },
@@ -275,7 +281,7 @@ function buildPortal(scene) {
 export function buildColliders(world, RAPIER) {
   const { R, L, fanX, groundX } = TUN;
   const fixed = world.createRigidBody(RAPIER.RigidBodyDesc.fixed());
-  world.createCollider(RAPIER.ColliderDesc.cuboid(0.5, 80, 80).setTranslation(groundX + 0.5, 0, 0).setFriction(0.8).setRestitution(0.2), fixed);
+  world.createCollider(RAPIER.ColliderDesc.cuboid(0.5, 80 * S, 80 * S).setTranslation(groundX + 0.5, 0, 0).setFriction(0.8).setRestitution(0.2), fixed);
   const N = 36, t = 0.06;
   for (let i = 0; i < N; i++) {
     const a = i / N * Math.PI * 2;
@@ -285,8 +291,8 @@ export function buildColliders(world, RAPIER) {
       .setRotation({ x: q.x, y: q.y, z: q.z, w: q.w }).setFriction(0.5).setRestitution(0.3);
     world.createCollider(cd, fixed);
   }
-  const hub = [world.createCollider(RAPIER.ColliderDesc.ball(FAN.Rhub).setTranslation(fanX - 0.15, 0, 0).setRestitution(0.4), fixed)];
+  const hub = [world.createCollider(RAPIER.ColliderDesc.ball(FAN.Rhub).setTranslation(fanX - 0.15 * S, 0, 0).setRestitution(0.4), fixed)];
   const qz = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), Math.PI / 2);
-  hub.push(world.createCollider(RAPIER.ColliderDesc.cylinder(0.75, 0.5).setTranslation(fanX + 0.95, 0, 0).setRotation({ x: qz.x, y: qz.y, z: qz.z, w: qz.w }), fixed));
+  hub.push(world.createCollider(RAPIER.ColliderDesc.cylinder(0.75 * S, 0.5 * S).setTranslation(fanX + 0.95 * S, 0, 0).setRotation({ x: qz.x, y: qz.y, z: qz.z, w: qz.w }), fixed));
   return { hub };   // Hole Mode switches these off while the fan is out
 }

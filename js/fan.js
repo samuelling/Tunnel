@@ -2,7 +2,7 @@
 // power, an aerodynamic load torque k·ω² (fan law), and blade strikes that exchange momentum
 // with whatever wanders into the disc. Plus its geometry: twisted, tapered blades.
 import * as THREE from 'three';
-import { FAN, TUN } from './config.js';
+import { FAN, FAN0, TUN, S } from './config.js';
 
 export class Rotor {
   constructor() {
@@ -35,8 +35,8 @@ export class Rotor {
 }
 
 // Blade angle (from the rotation plane) at radius r — steeper near the hub, flatter at the tip.
-export const bladeAngle = (r) => {
-  const s = (r - FAN.Rhub) / (FAN.Rtip - FAN.Rhub);
+export const bladeAngle = (r, F = FAN) => {
+  const s = (r - F.Rhub) / (F.Rtip - F.Rhub);
   return (52 - 30 * Math.max(0, Math.min(1, s))) * Math.PI / 180;
 };
 
@@ -72,17 +72,17 @@ export function buildFan(blades = FAN.blades) {
     const bend = new THREE.Group(); b.add(bend);      // damage: bent / snapped (see setBladeDamage)
     const m = new THREE.Mesh(geo, bladeMat); m.castShadow = true; bend.add(m);
     const tm = new THREE.Mesh(tip, tipMat);
-    const beta = bladeAngle(FAN.Rtip - 0.09);
-    tm.position.set(0, FAN.Rtip - 0.09, 0); tm.rotation.y = -(Math.PI / 2 - beta); bend.add(tm);
+    const beta = bladeAngle(FAN0.Rtip - 0.09, FAN0);
+    tm.position.set(0, FAN0.Rtip - 0.09, 0); tm.rotation.y = -(Math.PI / 2 - beta); bend.add(tm);
     bends.push({ bend, tip: tm });
     b.rotation.x = k * 2 * Math.PI / blades;
     rotor.add(b);
   }
   // hub with spinner nose
   const hubMat = new THREE.MeshStandardMaterial({ color: '#2a2e35', metalness: 0.6, roughness: 0.35 });
-  const hub = new THREE.Mesh(new THREE.CylinderGeometry(FAN.Rhub, FAN.Rhub, 0.5, 32), hubMat);
+  const hub = new THREE.Mesh(new THREE.CylinderGeometry(FAN0.Rhub, FAN0.Rhub, 0.5, 32), hubMat);
   hub.rotation.z = Math.PI / 2; rotor.add(hub);
-  const nose = new THREE.Mesh(new THREE.SphereGeometry(FAN.Rhub, 32, 16, 0, Math.PI * 2, 0, Math.PI / 2), new THREE.MeshStandardMaterial({ color: '#ffc21a', metalness: 0.3, roughness: 0.35 }));
+  const nose = new THREE.Mesh(new THREE.SphereGeometry(FAN0.Rhub, 32, 16, 0, Math.PI * 2, 0, Math.PI / 2), new THREE.MeshStandardMaterial({ color: '#ffc21a', metalness: 0.3, roughness: 0.35 }));
   nose.rotation.z = Math.PI / 2; nose.position.x = -0.25; nose.scale.set(1, 1.6, 1); rotor.add(nose);
   // stripes on the nose so you can see it spin
   const stripe = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.9, 0.12), hubMat);
@@ -90,16 +90,17 @@ export function buildFan(blades = FAN.blades) {
   // motion-blur disc (fades in with speed)
   const discTex = (() => {
     const cv = document.createElement('canvas'); cv.width = cv.height = 256;
-    const c = cv.getContext('2d'), g = c.createRadialGradient(128, 128, 128 * FAN.Rhub / FAN.Rtip, 128, 128, 128);
+    const c = cv.getContext('2d'), g = c.createRadialGradient(128, 128, 128 * FAN0.Rhub / FAN0.Rtip, 128, 128, 128);
     g.addColorStop(0, 'rgba(200,205,212,0.0)'); g.addColorStop(0.08, 'rgba(200,205,212,0.55)'); g.addColorStop(0.9, 'rgba(200,205,212,0.35)');
     g.addColorStop(0.94, 'rgba(255,194,26,0.6)'); g.addColorStop(1, 'rgba(255,194,26,0.0)');
     c.fillStyle = g; c.fillRect(0, 0, 256, 256);
     const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace; return t;
   })();
-  const disc = new THREE.Mesh(new THREE.CircleGeometry(FAN.Rtip, 64), new THREE.MeshBasicMaterial({ map: discTex, transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide }));
+  const disc = new THREE.Mesh(new THREE.CircleGeometry(FAN0.Rtip, 64), new THREE.MeshBasicMaterial({ map: discTex, transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide }));
   disc.rotation.y = Math.PI / 2;
   group.add(disc);
   group.position.set(TUN.fanX, TUN.y0, 0);
+  group.scale.setScalar(S);   // drawn at 1×
   // d: 0 = straight, 1 = bent into the housing, ≥1.5 = snapped off
   const setBladeDamage = (k, d) => {
     const { bend, tip } = bends[k];
@@ -116,10 +117,10 @@ function bladeGeometry() {
   const nr = 12, nc = 14;
   const pos = [], idx = [];
   for (let i = 0; i <= nr; i++) {
-    const r = FAN.Rhub * 0.9 + (FAN.Rtip - FAN.Rhub * 0.9) * i / nr;
+    const r = FAN0.Rhub * 0.9 + (FAN0.Rtip - FAN0.Rhub * 0.9) * i / nr;
     const s = i / nr;
     const c = 0.95 - 0.38 * s;
-    const beta = bladeAngle(r);
+    const beta = bladeAngle(r, FAN0);
     const cb = Math.cos(beta), sb = Math.sin(beta);
     for (const side of [1, -1]) {
       for (let j = 0; j <= nc; j++) {

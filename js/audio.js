@@ -34,22 +34,38 @@ export class Audio {
     this.whineG = ctx.createGain(); this.whineG.gain.value = 0;
     this.whine.connect(this.whineG).connect(this.master);
     this.hum.start(); this.hum2.start(); this.whine.start();
+    // a fan this big beats the air: the hum swells and fades at the blade-pass rate (whomp, whomp)
+    this.beat = ctx.createOscillator(); this.beat.type = 'sine';
+    this.beatG = ctx.createGain(); this.beatG.gain.value = 0;
+    this.beat.connect(this.beatG).connect(this.humG.gain); this.beat.start();
+    // the motor straining when something heavy drags the rotor down: a low, falling groan
+    this.groan = ctx.createOscillator(); this.groan.type = 'sawtooth';
+    this.groanF = ctx.createBiquadFilter(); this.groanF.type = 'lowpass'; this.groanF.frequency.value = 220; this.groanF.Q.value = 3;
+    this.groanG = ctx.createGain(); this.groanG.gain.value = 0;
+    this.groan.connect(this.groanF).connect(this.groanG).connect(this.master); this.groan.start();
   }
 
   setEnabled(on) { this.enabled = on; if (this.master) this.master.gain.setTargetAtTime(on ? 0.8 : 0, this.ctx.currentTime, 0.05); }
 
-  // U: airspeed (m/s), omega: rotor rad/s, blades, load: motor load 0..1
-  update(U, omega, blades, load, timeScale) {
+  // U: airspeed (m/s), omega: rotor rad/s, blades, load: motor load 0..1,
+  // strain: how far heavy stuff has dragged the rotor below its set speed (0..1), wMax: full speed
+  update(U, omega, blades, load, timeScale, strain = 0, wMax = 48) {
     if (!this.ctx) return;
     const t = this.ctx.currentTime, k = Math.min(1, U / 40);
     const ts = Math.max(0.15, timeScale);
     this.windF.frequency.setTargetAtTime((120 + 22 * U) * ts, t, 0.1);
     this.windG.gain.setTargetAtTime(0.55 * k * k, t, 0.1);
     this.hissG.gain.setTargetAtTime(0.12 * k * k * k, t, 0.1);
-    const f = Math.abs(omega) / (2 * Math.PI) * blades * ts;
-    this.hum.frequency.setTargetAtTime(Math.max(1, f), t, 0.05);
-    this.hum2.frequency.setTargetAtTime(Math.max(1, f * 2), t, 0.05);
-    this.humG.gain.setTargetAtTime(0.16 * Math.min(1, Math.abs(omega) / 48), t, 0.08);
+    // blade-pass f is subsonic on the big rotor (15 Hz flat out): the hum sits at its 4th and 6th
+    // harmonics and is beaten at f itself
+    const f = Math.abs(omega) / (2 * Math.PI) * blades * ts, sp = Math.min(1, Math.abs(omega) / wMax);
+    this.hum.frequency.setTargetAtTime(Math.max(1, f * 4), t, 0.05);
+    this.hum2.frequency.setTargetAtTime(Math.max(1, f * 6), t, 0.05);
+    this.humG.gain.setTargetAtTime(0.16 * sp, t, 0.08);
+    this.beat.frequency.setTargetAtTime(Math.max(0.5, f), t, 0.05);
+    this.beatG.gain.setTargetAtTime(0.11 * sp, t, 0.08);
+    this.groan.frequency.setTargetAtTime((24 + 46 * sp) * ts, t, 0.08);
+    this.groanG.gain.setTargetAtTime(0.32 * strain * Math.min(1, Math.abs(omega) / 2), t, strain > 0.05 ? 0.06 : 0.4);
     this.whine.frequency.setTargetAtTime(Math.max(1, Math.abs(omega) / (2 * Math.PI) * 38 * ts), t, 0.05);
     this.whineG.gain.setTargetAtTime(0.012 * load * Math.min(1, Math.abs(omega) / 10), t, 0.1);
   }
@@ -97,4 +113,11 @@ export class Audio {
     this._noise(0.6, 'bandpass', 900, 0.8, 0.35 * L);
   }
   sparks() { if (!this.ctx || !this.enabled) return; this._noise(0.35, 'highpass', 5000, 0.8, 0.35); }
+  // something heavy landing or slamming into the fan: a long, deep rumble you feel more than hear
+  rumble(e) {
+    if (!this.ctx || !this.enabled) return;
+    const L = Math.max(0.25, Math.min(1, (Math.log10(1 + e) - 3) / 3.5));
+    this._tone(62, 27, 1.7, 0.95 * L); this._tone(94, 38, 0.9, 0.45 * L, 'triangle', 0.03);
+    this._noise(2.0, 'lowpass', 160, 0.8, 1.1 * L); this._noise(0.5, 'bandpass', 420, 1, 0.45 * L, 0.02);
+  }
 }

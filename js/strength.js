@@ -15,7 +15,7 @@
 //    edge width and d is the engagement depth. Hollow and soft things need little force; solid
 //    stone and solid steel need a lot.
 //
-// The blade has limits too: it starts to bend at F_y and snaps at F_u (a ~35 kg steel blade,
+// The blade has limits too: it starts to bend at F_y and snaps at F_u (a hollow 6.9 m blade,
 // root section ≈ 0.4 × 0.05 m, hit about a metre out). On each strike the peak force is
 //    F = min(F_imp, F_need),   with F_imp = (1+e)·m_eff·v² / d  (the impulse over the contact time d/v).
 //  • F_need ≤ F_u: the blade can cut it, so it breaks if E ≥ E_break. Anything above F_y on the
@@ -43,9 +43,10 @@ export const MAT_PHYS = {
 };
 
 export const BLADE = {
-  Fy: 2.5e5,      // N — onset of bending
-  Fu: 6.0e5,      // N — the blade snaps
-  edge: 0.04,     // m — leading-edge width that does the cutting
+  // the 3× plant's 6.9 m blades: S² the section, so S² the strength
+  Fy: 2.5e5 * 9,  // N — onset of bending
+  Fu: 6.0e5 * 9,  // N — the blade snaps
+  edge: 0.06,     // m — leading-edge width that does the cutting
 };
 
 // built = buildObject(recipe) result (parts carry hull volume, material and points about the COM)
@@ -69,7 +70,7 @@ export function strengthOf(recipe, built) {
   const t = Math.min(c / 2, f * V / S);                                 // equivalent wall thickness
   const A = 0.8 * Math.min(b * c, 2 * (b + c) * t);                     // fracture area
   const Ebreak = G * A;
-  const d = Math.max(0.02, Math.min(0.15, c / 2));                      // engagement depth
+  const d = Math.max(0.02, Math.min(0.4, c / 2));                       // engagement depth (the big blades bite up to 0.4 m)
   const fill = Math.max(f, Math.min(1, 2 * t / d));
   const Fneed = sig * fill * BLADE.edge * d;
   return { Ebreak, Fneed, d, f, t, G, sigma: sig, dims };

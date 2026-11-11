@@ -36,7 +36,7 @@ Reply with ONLY one line of minified JSON (no spaces, no prose, no code fence). 
     "color": "#rrggbb",
     "material": default "plastic"; one of ${JSON.stringify(MATERIAL_NAMES)} ("metal" = ordinary sheet/structural steel or aluminium, "steel" = hardened or armour-thick steel, "iron" = cast iron),
     "pattern" (optional): {"type":"stripes"|"bands"|"spots"|"segments","color":"#rrggbb","count":n,"colors":["#..",...]}}
-Use real-world dimensions in metres, y is up, the object roughly centred on the origin, largest dimension under 3 m. Make it recognisable and a bit charming.`;
+Use real-world dimensions in metres, y is up, the object roughly centred on the origin, largest dimension under 12 m (it can be as big as a bus). Make it recognisable and a bit charming.`;
 
 export const recipeUser = (what) => `Design: "${String(what).replace(/"/g, "'")}"`;
 

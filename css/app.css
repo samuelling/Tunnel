@@ -23,6 +23,8 @@ button, input { font: inherit; color: inherit; }
 #hud .gauges div { display: flex; flex-direction: column; }
 #hud label { font: 700 9px var(--mono); color: var(--m); letter-spacing: 0.16em; }
 #hud b { font: 700 16px var(--mono); }
+#hud b#rpm.strain { color: #ff5a3c; animation: strainPulse .35s ease-in-out infinite alternate; }
+@keyframes strainPulse { from { opacity: 1; } to { opacity: .55; } }
 #hud i { font: 500 9px var(--mono); color: var(--m); font-style: normal; }
 
 #tools { position: fixed; right: 12px; top: calc(12px + var(--st)); display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; max-width: 60vw; }

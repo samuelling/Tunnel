@@ -3,6 +3,7 @@
 // In December a string of Christmas lights is draped over it; during Hanukkah they all turn blue.
 // (Preview any time with ?holiday=christmas, ?holiday=hanukkah or ?holiday=none.)
 import * as THREE from 'three';
+import { S } from './config.js';
 
 // ---- which holiday is it? Hanukkah runs from the evening before 25 Kislev for eight nights;
 // the Hebrew date comes from the browser's own calendar support, with a table as a fallback.
@@ -91,8 +92,10 @@ export function buildSafetyBoard(scene) {
   for (const x of [-W * 0.38, W * 0.38]) { const p = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 1.2 + H, 10), postMat); p.position.set(x, (1.2 + H) / 2, -0.09); p.castShadow = true; g.add(p); }
   scene.add(g);
   // beside the portal, on the camera's left in the Overview shot, turned to face it
-  g.position.set(-1.6, 0, 6.6);
-  g.rotation.y = Math.atan2(22 - g.position.x, 12 - g.position.z);
+  // the plant is 3× its old size: the board is twice the size it was, still on human-height posts' scale
+  g.scale.setScalar(1.6);
+  g.position.set(-1.6 * S, 0, 6.6 * S);
+  g.rotation.y = Math.atan2(22 * S - g.position.x, 12 * S - g.position.z);
 
   // holiday lights: put up and taken down by the calendar (checked every few minutes)
   let lights = null, holiday = null, checkedAt = -1e9;

@@ -12,7 +12,7 @@ import { WORKER_URL } from '../../js/settings.js';
 import { MATERIALS } from './units.js';
 import { canvasDraw } from './shapes.js';
 
-export const SHRED_TUBE_H = 4.8;   // the Shred Hole's tube is 4.8 m across
+export const SHRED_TUBE_H = 14.4;  // the Shred Hole's tube is 14.4 m across (the 3× plant)
 
 // side view of a built object as a white-on-transparent canvas, plus its real dimensions
 export function silhouetteOf(recipe, px = 420) {

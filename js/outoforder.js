@@ -1,7 +1,7 @@
 // The OUT OF ORDER sign. It drops on two chains from the top rim of the tower when the fan jams,
 // swings like the ~5.5 m pendulum it is (T = 2π√(L/g) ≈ 4.7 s), and is winched away after repairs.
 import * as THREE from 'three';
-import { TUN } from './config.js';
+import { TUN, S } from './config.js';
 
 function signTexture(times) {
   const cv = document.createElement('canvas'); cv.width = 1024; cv.height = 560;
@@ -34,7 +34,7 @@ export function buildOutOfOrder(scene) {
   const topY = TUN.groundX + 0.15;          // world height of the tube's top rim
   const hang = 4.6;                         // chain length to the sign's top edge
   const W = 3.6, H = 1.97;
-  const group = new THREE.Group(); group.visible = false; scene.add(group);
+  const group = new THREE.Group(); group.visible = false; group.scale.setScalar(2); scene.add(group);   // big enough to read on the 3× plant
   const pivot = new THREE.Group(); group.add(pivot);
   const boardMat = new THREE.MeshStandardMaterial({ map: signTexture(1), roughness: 0.75 });
   const edgeMat = new THREE.MeshStandardMaterial({ color: '#d9d2bf', roughness: 0.8 });
@@ -85,7 +85,7 @@ export function buildOutOfOrder(scene) {
       // hang on the side of the tower facing the camera
       // a little off to one side of the camera's line of sight so it never blocks the blades
       const a = Math.atan2(camera.position.x, camera.position.z) + 0.75;
-      group.position.set(Math.sin(a) * (TUN.R + 0.55), topY, Math.cos(a) * (TUN.R + 0.55));
+      group.position.set(Math.sin(a) * (TUN.R + 0.55 * S), topY, Math.cos(a) * (TUN.R + 0.55 * S));
       group.rotation.y = a;
     },
   };

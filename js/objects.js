@@ -9,6 +9,7 @@ import { ConvexHull } from 'three/addons/math/ConvexHull.js';
 
 import { SPRAYS, SOUNDS, MATERIAL_NAMES } from './prompt.js';
 import { BIG_STUFF } from './bigstuff.js';
+import { VEHICLES } from './vehicles.js';
 const JAMMERS = new Set(['safe', 'boulder', 'manhole']);
 export { SPRAYS, SOUNDS, recipePrompt } from './prompt.js';
 export const MATERIALS = {
@@ -33,8 +34,9 @@ const d2r = Math.PI / 180;
 
 // ------------------------------------------------------------------------------- catalogue
 export const CATALOG = [
-  // the couch leads (a friendly first throw); the three fan-jammers go last, so nobody's first
-  // throw is a 1-tonne safe
+  // vehicles lead (the 3× plant is built for them, and the hatchback is the first throw); then the
+  // couch; the three fan-jammers go last, so nobody's first throw is a 1-tonne safe
+  ...VEHICLES,
   ...[...BIG_STUFF].sort((a, b) => (a.id === 'couch' ? -1 : b.id === 'couch' ? 1 : 0) || (JAMMERS.has(a.id) - JAMMERS.has(b.id))),
   { id: 'duck', name: 'Rubber duck', icon: '🦆', mass: 0.08, toughness: 25, spray: 'confetti', sound: 'squeak', inner: '#ffe36b',
     blend: 'IT BLENDS. Quack is now a gas.', survive: 'The duck remains smug and aerodynamic.',
@@ -215,7 +217,7 @@ const num = (v, d, lo, hi) => { v = +v; if (!isFinite(v)) v = d; return Math.max
 
 function geometryFor(p) {
   const s = Array.isArray(p.size) ? p.size : [];
-  const L = (i, d) => num(s[i], d, 0.0005, 4);
+  const L = (i, d) => num(s[i], d, 0.0005, 12);
   switch (p.shape) {
     case 'sphere': { const g = new THREE.SphereGeometry(1, 32, 20); g.scale(L(0, 0.1), L(1, s[0] ?? 0.1), L(2, s[0] ?? 0.1)); return g; }
     case 'box': return new THREE.BoxGeometry(L(0, 0.1), L(1, 0.1), L(2, 0.1));
@@ -239,7 +241,7 @@ function geometryFor(p) {
       return new THREE.LatheGeometry(pts, 32);
     }
     case 'tube': {
-      const pts = (p.points || [[-0.1, 0, 0], [0.1, 0, 0]]).slice(0, 32).map(q => new THREE.Vector3(num(q[0], 0, -4, 4), num(q[1], 0, -4, 4), num(q[2], 0, -4, 4)));
+      const pts = (p.points || [[-0.1, 0, 0], [0.1, 0, 0]]).slice(0, 32).map(q => new THREE.Vector3(num(q[0], 0, -12, 12), num(q[1], 0, -12, 12), num(q[2], 0, -12, 12)));
       if (pts.length < 2) pts.push(pts[0].clone().add(new THREE.Vector3(0.1, 0, 0)));
       return new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 32, num(p.radius, 0.02, 0.001, 1), 12, false);
     }
@@ -308,7 +310,7 @@ export function sanitizeRecipe(r) {
     id: r.id || ('gen-' + Math.random().toString(36).slice(2, 8)),
     name: String(r.name || 'Mystery object').slice(0, 40),
     icon: typeof r.icon === 'string' ? r.icon.slice(0, 4) : '✨',
-    mass: num(r.mass, 1, 0.001, 5000),
+    mass: num(r.mass, 1, 0.001, 40000),
     toughness: num(r.toughness, 20, 0.01, 1e6),
     impact: num(r.impact, 0, 0, 1e7),
     unbreakable: !!r.unbreakable, pop: !!r.pop,
@@ -328,7 +330,7 @@ export function sanitizeRecipe(r) {
     out.parts.push({
       shape: ['sphere', 'box', 'plate', 'roundbox', 'cylinder', 'cone', 'capsule', 'torus', 'dome', 'lathe', 'tube', 'teapot'].includes(p.shape) ? p.shape : 'box',
       size: Array.isArray(p.size) ? p.size.slice(0, 3) : [0.1, 0.1, 0.1],
-      pos: Array.isArray(p.pos) ? p.pos.slice(0, 3).map(v => num(v, 0, -4, 4)) : [0, 0, 0],
+      pos: Array.isArray(p.pos) ? p.pos.slice(0, 3).map(v => num(v, 0, -12, 12)) : [0, 0, 0],
       rot: Array.isArray(p.rot) ? p.rot.slice(0, 3).map(v => num(v, 0, -720, 720)) : [0, 0, 0],
       color: /^#[0-9a-f]{6}$/i.test(p.color) ? p.color : '#999999',
       material: MATERIALS[p.material] ? p.material : 'plastic',

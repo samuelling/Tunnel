@@ -9,7 +9,7 @@
 //    advected with the flow (Taylor's frozen-turbulence hypothesis).
 //  • With Real Air on, two corrections from the lattice-Boltzmann slice (js/realair.js): a per-body
 //    nudge (wakes, drafting, shielding, jets round things) and a blockage that cuts the fan's flow.
-import { TUN, FAN, NU, PORTAL } from './config.js';
+import { TUN, FAN, NU, PORTAL, S } from './config.js';
 
 export class Air {
   constructor() {
@@ -25,7 +25,7 @@ export class Air {
     const modes = [];
     let e = 0;
     for (let i = 0; i < 14; i++) {
-      const lam = 0.45 * Math.pow(9, Math.random());           // 0.45 … 4 m
+      const lam = 0.45 * S * Math.pow(9, Math.random());       // 1.35 … 12 m (eddies scale with the tube)
       const k = 2 * Math.PI / lam;
       const th = Math.acos(2 * Math.random() - 1), ph = Math.random() * Math.PI * 2;
       const kv = [k * Math.sin(th) * Math.cos(ph), k * Math.cos(th), k * Math.sin(th) * Math.sin(ph)];
@@ -83,8 +83,8 @@ export class Air {
         us = U * prof / (1 - 2 * (delta / 8) / R);
         tf = 1 + 1.5 * (1 - prof);
         const dxf = xs - fanS;
-        if (dxf > -1.6 && dxf < 0) {               // stream splits around the hub
-          const s = (dxf + 1.6) / 1.6, hub = FAN.Rhub * 1.3;
+        if (dxf > -1.6 * S && dxf < 0) {           // stream splits around the hub
+          const s = (dxf + 1.6 * S) / (1.6 * S), hub = FAN.Rhub * 1.3;
           const k = Math.exp(-((r / hub) ** 2)) * s;
           us *= 1 - 0.75 * k;
           if (r > 1e-3) { const vr = 0.55 * U * k * Math.min(1, r / hub); uy += vr * dy / r; uz += vr * dz / r; }

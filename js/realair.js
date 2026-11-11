@@ -18,14 +18,14 @@
 // just above the fan block the slice too, and that cuts the fan's flow (fan law with an added
 // resistance).
 //
-// Scale: 64 cells across the 4.8 m tube (7.5 cm cells), lattice speed 0.12 at 40 m/s. Each frame
+// Scale: 64 cells across the 14.4 m tube (22.5 cm cells), lattice speed 0.12 at 40 m/s. Each frame
 // runs as many steps as keep the slice in step with the game's clock, up to a cap; on a slow GPU
 // the slice's flow lags behind real time rather than dragging the frame rate down.
 import * as THREE from 'three';
 import { createGL } from '../lab/js/gl.js';
 import { Solver, MAX_OBJ } from '../lab/js/lbm.js';
 import { buildShape } from '../lab/js/shapes.js';
-import { TUN, FAN, NU } from './config.js';
+import { TUN, FAN, NU, S } from './config.js';
 
 const GH = 64, R = TUN.R, DX = (2 * R) / GH, GW = Math.round(TUN.L / DX);
 const ULB_REF = 0.12, U_REF = 40;
@@ -51,7 +51,7 @@ export class RealAir {
     this.field = null; this.base = new Map(); this.readClock = 0; this.readId = 0; this.pend = null;
     this.felt = 0; this.feltMax = 0;
     // the fan hub, fixed in the slice
-    this.hub = this.makeShape([[[-0.42, -FAN.Rhub], [0.42, -FAN.Rhub], [0.42, FAN.Rhub], [-0.42, FAN.Rhub]]]);
+    this.hub = this.makeShape([[[-0.42 * S, -FAN.Rhub], [0.42 * S, -FAN.Rhub], [0.42 * S, FAN.Rhub], [-0.42 * S, FAN.Rhub]]]);
     // the cut-away: a glowing plane through the axis, added over the scene
     this.tex = new THREE.CanvasTexture(this.canvas);
     this.tex.colorSpace = THREE.SRGBColorSpace; this.tex.minFilter = THREE.LinearFilter;
@@ -211,10 +211,10 @@ export class RealAir {
       const a = 1 / Math.min(b.n + 1, 12); b.n++;
       for (let i = 0; i < N; i++) { const inv = 1 / cm[i % GW]; b[2 * i] += (u[4 * i + 2] * inv - b[2 * i]) * a; b[2 * i + 1] += (u[4 * i + 3] * inv - b[2 * i + 1]) * a; }
     }
-    // fan blockage: the most-blocked column of the slice in the 1.4 m above the fan, hub left out
+    // fan blockage: the most-blocked column of the slice in the 1.4·S m above the fan, hub left out
     const o = f.obs, hubId = f.hub ? 0 : -1, fx = Math.round((f.flip > 0 ? TUN.fanX : TUN.L - TUN.fanX) / DX);
     let worst = 0;
-    for (let gx = Math.max(0, fx - Math.round(1.4 / DX)); gx <= Math.min(GW - 1, fx); gx++) {
+    for (let gx = Math.max(0, fx - Math.round(1.4 * S / DX)); gx <= Math.min(GW - 1, fx); gx++) {
       let n = 0;
       for (let gy = 0; gy < GH; gy++) { const k = (gy * GW + gx) * 4; if (o[k] < 0 && o[k + 1] !== hubId) n++; }
       worst = Math.max(worst, n / GH);
@@ -249,7 +249,7 @@ export class RealAir {
     if (gx < 1) return false;
     const fanS = (f.flip > 0 ? TUN.fanX : TUN.L - TUN.fanX) / DX;
     const ref = this.base.get(`${f.flip}:${f.hub ? 1 : 0}`);
-    if (!ref && f.hub && gx > fanS - 1.8 / DX && gx < fanS + 1 / DX) return false;   // no reference yet: keep out of the hub's own disturbance
+    if (!ref && f.hub && gx > fanS - 1.8 * S / DX && gx < fanS + S / DX) return false;   // no reference yet: keep out of the hub's own disturbance
     const cm = f.colMean, ci = Math.max(0, Math.min(GW - 1, Math.round(gx)));
     const us = this.sampleAt(f.u, 4, 2, gx, gy, S1), inv = 1 / cm[ci];
     const ub = ref ? this.sampleAt(ref, 2, 0, gx, gy, S2) : B0;

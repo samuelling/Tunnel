@@ -1,7 +1,7 @@
 // Spray: juice, sparks, confetti, glass, smoke tracers… simple drag particles that ride the
 // same air model as the rigid bodies, splat on the floor and stick to the tube walls.
 import * as THREE from 'three';
-import { TUN, PORTAL } from './config.js';
+import { TUN, PORTAL, S } from './config.js';
 
 const TYPES = {
   juice: { col: '#d4142a', size: 0.026, drag: 2.2, grav: 1, stick: 1, life: 9 },
@@ -20,7 +20,9 @@ const TYPES = {
   plastic: { size: 0.03, drag: 6, grav: 1, flutter: 0.6, stick: 1, life: 10, palette: 1 },
   fabric: { size: 0.035, drag: 9, grav: 1, flutter: 1, stick: 1, life: 10, palette: 1 },
   food: { size: 0.028, drag: 3, grav: 1, stick: 1, life: 9, palette: 1 },
-  smoke: { col: '#cfd8e3', size: 0.22, drag: 40, grav: 0, alpha: 0.18, life: 3.2, grow: 1, turb: 1 },
+  smoke: { col: '#cfd8e3', size: 0.22 * S, drag: 40, grav: 0, alpha: 0.18, life: 3.2, grow: 1, turb: 1 },
+  // the billow when something heavy lands or hits the fan: grit and grime, slow to settle
+  cloud: { col: '#8d877d', size: 0.55, drag: 2.5, grav: 0.04, alpha: 0.32, life: 3.8, grow: 1, turb: 1 },
 };
 
 const VS = `
@@ -113,7 +115,7 @@ export class Particles {
       P.life[i] -= dt;
       const ix = i * 3;
       let x = P.pos[ix], y = P.pos[ix + 1], z = P.pos[ix + 2];
-      if (P.life[i] <= 0 || x > TUN.groundX + 0.5 || x < -40 || Math.abs(y) > 40 || Math.abs(z) > 40) { P.count--; P.copy(i, P.count); i--; continue; }
+      if (P.life[i] <= 0 || x > TUN.groundX + 0.5 || x < -40 * S || Math.abs(y) > 40 * S || Math.abs(z) > 40 * S) { P.count--; P.copy(i, P.count); i--; continue; }
       const fade = Math.min(1, P.life[i] / Math.min(1.5, P.max[i] * 0.5));
       if (P.grow[i]) P.size[i] = P.base[i] * (1 + 1.5 * (1 - P.life[i] / P.max[i]));
       P.col[i * 4 + 3] = P.a0[i] * fade;

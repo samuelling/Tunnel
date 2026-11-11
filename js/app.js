@@ -4,7 +4,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { ConvexGeometry } from 'three/addons/geometries/ConvexGeometry.js';
 import RAPIER from '../lib/rapier.mjs';
-import { TUN, FAN, RHO, NU, G, PORTAL, beaufort } from './config.js';
+import { TUN, TUN0, FAN, RHO, NU, G, PORTAL, S, beaufort } from './config.js';
 import { Air } from './air.js';
 import { aeroLoads, makePanels } from './aero.js';
 import { Rotor, buildFan, bladeSweep, bladeAngle } from './fan.js';
@@ -16,6 +16,7 @@ import { strengthOf, scaleStrength, BLADE, fmtForce } from './strength.js';
 import { buildOutOfOrder } from './outoforder.js';
 import { SessionPile, renderPileImage, renderPostcard, postcardNote } from './sharepile.js';
 import { PileCam } from './pilecam.js';
+import { buildCrew } from './crew.js';
 import { buildSafetyBoard } from './safetyboard.js';
 import { WORKER_URL, WORLD_BUILDER_URL } from './settings.js';
 import { stats } from './stats.js';
@@ -33,13 +34,15 @@ const MAX_BODIES = isTouch ? 170 : 260;
 const DT = 1 / 180;
 
 let hubColliders = [], holeMode = false, holeAnim = null, holeThrottle = 70;
-let renderer, scene, rig, portal, camera, controls, world, eventQueue, air, rotor, fan, particles, tunnel, drops, sign, safety;
+let renderer, scene, rig, portal, camera, controls, world, eventQueue, air, rotor, fan, particles, tunnel, drops, sign, safety, crew;
 const absorbing = [];
 const audio = new Audio();
 const bodies = [];
 const byCollider = new Map();
 const pending = [];          // deferred breaks this step
-let simTime = 0, timeScale = 1, bulletUntil = 0, autoBullet = true, smokeOn = true, shake = 0;
+let simTime = 0, timeScale = 1, bulletUntil = 0, autoBullet = true, smokeOn = true, shake = 0, shakeT = 0;
+const shakeOff = new THREE.Vector3();
+let wPeak = 0, lastWSet = 0;
 let armed = null;            // recipe currently selected in the tray
 let lastRoot = null, camMode = 0;
 const recipes = [...CATALOG];
@@ -52,10 +55,10 @@ async function boot() {
   } catch (e) { fail('Physics engine failed to load (' + e.message + ').'); return; }
   renderer = createRenderer($('c'), isTouch);
   ({ scene, rig, tunnel, portal } = buildScene(renderer));
-  camera = new THREE.PerspectiveCamera(48, 1, 0.05, 200);
+  camera = new THREE.PerspectiveCamera(48, 1, 0.08, 200 * S);
   controls = new OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true; controls.dampingFactor = 0.08;
-  controls.maxPolarAngle = Math.PI * 0.495; controls.minDistance = 1; controls.maxDistance = 45;
+  controls.maxPolarAngle = Math.PI * 0.495; controls.minDistance = 1; controls.maxDistance = 45 * S;
   setCamera(0, true);
 
   world = new RAPIER.World({ x: G, y: 0, z: 0 });   // tube frame: gravity points down the axis (+x)
@@ -70,6 +73,10 @@ async function boot() {
   fan = buildFan();
   sign = buildOutOfOrder(scene);
   safety = buildSafetyBoard(scene);
+  crew = buildCrew(scene);
+  // a real hatchback parked by the portal: the size reference everyone knows
+  { const car = CATALOG.find(c => c.id === 'car'); if (car) { const b = buildObject(car), g = b.group; const bb = new THREE.Box3().setFromObject(g);
+    g.position.set(19, -bb.min.y, 5.5); g.rotation.y = 0.6; g.traverse(o => { if (o.isMesh) { o.castShadow = o.receiveShadow = true; } }); scene.add(g); } }
   rig.add(fan.group);
   particles = new Particles(rig);
   drops = new DropCollector({
@@ -103,15 +110,16 @@ function resize() {
 }
 
 // ------------------------------------------------------------------------------- cameras
-const GX = TUN.groundX, FY = TUN.groundX - TUN.fanX;
+// laid out for the 1× plant and scaled up with it
+const GX = TUN0.groundX, FY = TUN0.groundX - TUN0.fanX;
 const CAMS = [
-  { name: 'Overview', pos: [22, 8.5, 12], tgt: [0, 7.4, 0] },
+  { name: 'Overview', pos: [26.5, 3.2, 18.5], tgt: [0, 8.0, 0] },   // low and far, looking up: it should loom
   { name: 'Hopper', pos: [3.4, GX + 5.5, 4.2], tgt: [0, GX - 5, 0] },
   { name: 'Blades', pos: [0.7, FY + 3.6, 1.0], tgt: [0, FY - 0.3, 0] },
   { name: 'Window', pos: [6.2, FY + 1.0, 1.2], tgt: [0, FY + 0.2, 0] },
   { name: 'Portal', pos: [8.2, 2.3, 0.9], tgt: [0, 1.6, 0] },
   { name: 'Follow', follow: true },
-];
+].map(c => c.follow ? c : { ...c, pos: c.pos.map(v => v * S), tgt: c.tgt.map(v => v * S) });
 let camTween = null;
 function setCamera(i, instant) {
   camMode = i;
@@ -119,6 +127,8 @@ function setCamera(i, instant) {
   $('camName') && ($('camName').textContent = c.name);
   if (c.follow) { toast('Follow cam: tracks your last throw'); return; }
   const to = { pos: new THREE.Vector3(...c.pos), tgt: new THREE.Vector3(...c.tgt) };
+  // portrait phones: the wide shots come in closer, so the 46 m tower fills the tall frame
+  if (camera.aspect < 0.9 && (i === 0 || i === 4)) to.pos.lerp(to.tgt, 0.48);
   if (instant) { camera.position.copy(to.pos); controls.target.copy(to.tgt); controls.update(); return; }
   camTween = { from: { pos: camera.position.clone(), tgt: controls.target.clone() }, to, t: 0 };
 }
@@ -222,7 +232,7 @@ function spawnRecipe(recipe, pos, vel) {
 
 function trimBodies() {
   while (bodies.length > MAX_BODIES) {
-    let idx = bodies.findIndex(b => b.level > 0 && b.group.position.x < TUN.fanX - 3);
+    let idx = bodies.findIndex(b => b.level > 0 && b.group.position.x < TUN.fanX - 3 * S);
     if (idx < 0) idx = bodies.findIndex(b => b.level > 0 && !onHatch(b));   // spare the payload
     if (idx < 0) idx = bodies.findIndex(b => b.level > 0);
     if (idx < 0) idx = 0;
@@ -358,13 +368,27 @@ function physicsStep(dt) {
     if (t.x < TUN.L) continue;
     const r = Math.hypot(t.y, t.z) + 1e-6, s = Math.min(1, (t.x - TUN.L) / (TUN.groundX - TUN.L));
     if (r > PORTAL.R * 2.2) continue;
-    const a = (3 + 6 * s) * Math.min(1, r / 0.8), sw = 4 * s;
+    const a = (3 + 6 * s) * S * Math.min(1, r / (0.8 * S)), sw = 4 * s * S;
     const m = rec.mass * dt;
     rec.body.applyImpulse({ x: 2 * s * m, y: (-a * t.y / r - sw * t.z / r) * m, z: (-a * t.z / r + sw * t.y / r) * m }, true);
   }
 
   stepExtraction();
   world.step(eventQueue);
+
+  // heavy landings: a big body whose velocity jumps in one step hit something hard
+  for (const rec of bodies) {
+    if (rec.mass < 120 || rec.dead) continue;
+    const v = rec.body.linvel();
+    if (rec.pv) {
+      const dv = Math.hypot(v.x - rec.pv.x, v.y - rec.pv.y, v.z - rec.pv.z);
+      if (dv > 4 && simTime > (rec.heavyCool || 0)) {
+        const E = 0.5 * rec.mass * dv * dv;
+        if (E > 2e4) { rec.heavyCool = simTime + 0.35; const t = rec.body.translation(); heavyImpact({ x: t.x, y: t.y, z: t.z }, E); }
+      }
+      rec.pv.x = v.x; rec.pv.y = v.y; rec.pv.z = v.z;
+    } else rec.pv = { x: v.x, y: v.y, z: v.z };
+  }
 
   eventQueue.drainContactForceEvents(ev => {
     const f = ev.totalForceMagnitude();
@@ -427,7 +451,8 @@ function strike(rec, hit, t) {
   const metal = r.unbreakable || r.spray === 'sparks' || rec.parts.some(p => p.matKind === 'metal' || p.matKind === 'chrome');
   if (metal) { particles.emit('sparks', contact, vb.clone().multiplyScalar(0.3), Math.min(160, 20 + E / 20), 6 + Math.sqrt(E) * 0.1); audio.sparks(); }
   audio.chop(E);
-  if (E > 400) shake = Math.min(1, shake + Math.log10(E) / 8);
+  if (E > 400) shake = Math.max(shake, Math.min(1, (Math.log10(E) - 2.6) / 4.4));   // sized by the strike, not stacked
+  if (E > 1.5e5) heavyImpact(contact, E);
   if (!r.unbreakable && (rec.level > 0 && (rec.radius < 0.035 || rec.mass < 0.003 * root.mass0))) { dissolve(rec, vNew, E); return; }
   // object vs blade: peak force is the impulse over the contact time, capped by what the
   // object can push back with before it gives way
@@ -476,8 +501,8 @@ function imbalance() {
   for (let k = 0; k < FAN.blades; k++) { const a = k * 2 * Math.PI / FAN.blades, d = Math.min(1.5, bladeDmg[k]); x += d * Math.cos(a); y += d * Math.sin(a); }
   return Math.hypot(x, y) / 1.5;
 }
-const bladeShard = { id: 'blade-shard', name: 'Fan blade (snapped)', icon: '🗡️', mass: 14, spray: 'sparks', sound: 'clang', inner: '#9aa0a8',
-  blend: 'The blade has been recycled.', survive: 'A souvenir.', parts: [{ shape: 'box', size: [0.05, 1.05, 0.34], color: '#d9dde2', material: 'metal' }] };
+const bladeShard = { id: 'blade-shard', name: 'Fan blade (snapped)', icon: '🗡️', mass: 14 * S ** 3, spray: 'sparks', sound: 'clang', inner: '#9aa0a8',
+  blend: 'The blade has been recycled.', survive: 'A souvenir.', parts: [{ shape: 'box', size: [0.05 * S, 1.05 * S, 0.34 * S], color: '#d9dde2', material: 'metal' }] };
 
 function bladeLoad(k, F, contact, rec) {
   const fy = bladeFy(k), fu = bladeFu(k);
@@ -492,11 +517,23 @@ function bladeLoad(k, F, contact, rec) {
   if (bladeDmg[k] >= 1.5) {
     toast(`💥 The ${name} snapped blade ${k + 1} clean off`);
     const sg = Math.sign(rotor.omega) || 1, a = Math.atan2(contact.z, contact.y);
-    spawnRecipe(bladeShard, new THREE.Vector3(TUN.fanX - 0.4, Math.cos(a) * 1.5, Math.sin(a) * 1.5), new THREE.Vector3(-3, -Math.sin(a) * sg * 9, Math.cos(a) * sg * 9));
+    spawnRecipe(bladeShard, new THREE.Vector3(TUN.fanX - 0.4 * S, Math.cos(a) * 1.5 * S, Math.sin(a) * 1.5 * S), new THREE.Vector3(-3, -Math.sin(a) * sg * 9, Math.cos(a) * sg * 9));
   } else if (bladeDmg[k] >= 1) toast(`Blade ${k + 1} bent into the housing`);
   else if (bladeDmg[k] - before > 0.06 && simTime - lastDmgToast > 0.6) { toast(`⚠ The ${name} bent blade ${k + 1} (${Math.round(bladeDmg[k] * 100)}%)`); lastDmgToast = simTime; }
   if (bladeDmg[k] >= 1) jamFan(bladeDmg[k] >= 1.5 ? 'snapped' : 'bent', rec, k);
   updateDamageUI();
+}
+
+// weight you can feel: the camera shakes, a deep rumble, and a billow of grime, all growing with
+// the energy (a hatchback into the fan is ~10 MJ, a container landing on the chute ~1 MJ)
+let lastRumble = 0;
+let heavyLog = [];
+function heavyImpact(p, E) {
+  if (heavyLog.length < 50) heavyLog.push(Math.round(E));
+  shake = Math.max(shake, Math.min(1, (Math.log10(E) - 4) / 2.6));
+  if (performance.now() - lastRumble > 140) { lastRumble = performance.now(); audio.rumble(E); }
+  const n = Math.min(70, Math.round(8 + (Math.log10(E) - 4) * 18));
+  particles.emit('cloud', p, { x: 0, y: 0, z: 0 }, n, 2 + Math.log10(E));
 }
 
 function checkStall(dt) {
@@ -507,7 +544,7 @@ function checkStall(dt) {
     for (const b of bodies) {
       if (b.dead || b.radius < 0.2) continue;
       const x = b.body.translation().x;
-      if (Math.abs(x - TUN.fanX) < FAN.zone + b.radius + 0.35 && (!lodged || b.mass > lodged.mass)) lodged = b;
+      if (Math.abs(x - TUN.fanX) < FAN.zone + b.radius + 0.35 * S && (!lodged || b.mass > lodged.mass)) lodged = b;
     }
   }
   stallT = lodged ? stallT + dt : Math.max(0, stallT - 2 * dt);
@@ -592,13 +629,13 @@ async function repairFan() {
   if (camMode !== 3) setCamera(3);
   await repairStep('Lockout–tagout: isolating the motor', 900, (k) => { if (k === 1) audio.hit('thunk', 3e3); });
   // anything big still in the fan zone gets craned out and dropped through the portal
-  const lodged = bodies.filter(b => !b.dead && b.radius > 0.15 && b.body.translation().x > TUN.fanX - 2.5 - b.radius && b.body.translation().x < TUN.L + 0.4);
+  const lodged = bodies.filter(b => !b.dead && b.radius > 0.15 && b.body.translation().x > TUN.fanX - 2.5 * S - b.radius && b.body.translation().x < TUN.L + 0.4 * S);
   if (lodged.length) {
     for (const rec of lodged) {
-      const t = rec.body.translation(), rr = Math.hypot(t.y, t.z) || 1, rc = Math.min(1.7, Math.max(1.1, rr));
+      const t = rec.body.translation(), rr = Math.hypot(t.y, t.z) || 1, rc = Math.min(1.7 * S, Math.max(1.1 * S, rr));
       for (const h of rec.colliders) world.getCollider(h)?.setSensor(true);
       rec.body.setGravityScale(0, true);
-      extracting.push({ rec, t0: performance.now(), ms: 1700, from: new THREE.Vector3(t.x, t.y, t.z), to: new THREE.Vector3(TUN.L + 0.25, t.y / rr * rc, t.z / rr * rc) });
+      extracting.push({ rec, t0: performance.now(), ms: 1700, from: new THREE.Vector3(t.x, t.y, t.z), to: new THREE.Vector3(TUN.L + 0.25 * S, t.y / rr * rc, t.z / rr * rc) });
     }
     const big = lodged.reduce((a, b) => (b.mass > a.mass ? b : a));
     bill.push(950);
@@ -615,7 +652,7 @@ async function repairFan() {
         last = performance.now();
         audio.hit('clang', 2e4);
         const a = rotor.theta + k * 2 * Math.PI / FAN.blades;
-        particles.emit('sparks', { x: TUN.fanX, y: Math.cos(a) * 1.6, z: Math.sin(a) * 1.6 }, { x: 0, y: 0, z: 0 }, 30, 4);
+        particles.emit('sparks', { x: TUN.fanX, y: Math.cos(a) * 1.6 * S, z: Math.sin(a) * 1.6 * S }, { x: 0, y: 0, z: 0 }, 30, 4);
       }
     });
     bladeDmg[k] = 0; fan.setBladeDamage(k, 0);
@@ -769,7 +806,7 @@ async function printPostcard() {
 // lot through the portal, and it goes to World Builder as one delivery: one request and one
 // write at the relay instead of one per object. It opens itself when full, after a long quiet
 // spell, or as you leave the page, so nothing gets stranded.
-const HATCH = { x: TUN.L + 1.45, R: 2.8, thick: 0.06, lip: 0.38 };
+const HATCH = { x: TUN.L + 1.45 * S, R: 2.8 * S, thick: 0.12, lip: 0.38 * S };
 const PAYLOAD_FULL = { pieces: 400 };   // a payload's piece budget
 // pieces that come to rest in the tray are frozen into static bodies: they still stack and
 // collide, but cost the simulation almost nothing and don't count against MAX_BODIES
@@ -818,7 +855,7 @@ function buildHatch() {
   const legLen = TUN.groundX - HATCH.x;
   for (let i = 0; i < 4; i++) {
     const a = Math.PI / 4 + i * Math.PI / 2;
-    const leg = new THREE.Mesh(new THREE.BoxGeometry(legLen, 0.1, 0.1), steel);
+    const leg = new THREE.Mesh(new THREE.BoxGeometry(legLen, 0.25, 0.25), steel);
     leg.position.set(HATCH.x + legLen / 2, (R + 0.06) * Math.cos(a), (R + 0.06) * Math.sin(a)); leg.castShadow = true; g.add(leg);
   }
 }
@@ -923,7 +960,7 @@ function flushInstantly() {
 // The fan and its motor slide out of the tube through the side, the breaker is locked off, and
 // whatever you drop just falls: through still air, down the tube, onto the Portal Chute, whole
 // (fragile things can still break when they land). Slide it back in to shred again.
-const HOLE_OUT = -(TUN.R + 3.6);   // sideways (tube y, i.e. world x): out of the tube, away from the Overview camera
+const HOLE_OUT = -(TUN.R + 3.6 * S);   // sideways (tube y, i.e. world x): out of the tube, away from the Overview camera
 function setHoleMode(on) {
   if (on === holeMode) return;
   if (on && (jam || repairing)) { toast('Fix the fan first: it has to be working to slide out'); return; }
@@ -950,7 +987,7 @@ function stepHole(dt) {
   const e = a.t < 0.5 ? 4 * a.t ** 3 : 1 - (-2 * a.t + 2) ** 3 / 2;
   const y = a.from + (a.to - a.from) * e;
   fan.group.position.y = y;
-  if (tunnel.motor) tunnel.motor.position.y = y - TUN.y0;
+  if (tunnel.motor) tunnel.motor.position.y = (y - TUN.y0) / S;   // the motor lives in the 1×-drawn, S-scaled tunnel group
   if (a.t >= 1) {
     holeAnim = null;
     if (!holeMode) {                             // back in place: colliders on, breaker on, throttle back
@@ -1011,7 +1048,7 @@ function startRide() {
   if (pc.first) pc.pollClock = pc.pollEvery;
   controls.enabled = false;
   const p0 = camera.position.clone(), t0 = controls.target.clone(), f0 = camera.fov;
-  const P = [p0, new THREE.Vector3(1.5, 6, 7), new THREE.Vector3(0.05, 1.2, 0.3)], T = [t0, new THREE.Vector3(0, 0.5, 0), new THREE.Vector3(0, -6, 0)];
+  const P = [p0, new THREE.Vector3(1.5, 6, 7).multiplyScalar(S), new THREE.Vector3(0.05, 1.2, 0.3).multiplyScalar(S)], T = [t0, new THREE.Vector3(0, 0.5, 0).multiplyScalar(S), new THREE.Vector3(0, -6, 0).multiplyScalar(S)];
   let k = 0;
   audio.whoosh?.(60);
   ride.dive = (dt) => {
@@ -1354,7 +1391,7 @@ function loop(now) {
       if (rec.level !== 0 || rec.root.bulleted) continue;
       const t = rec.body.translation();
       const vx = rec.body.linvel().x;
-      if (t.x > TUN.fanX - 1.2 - Math.max(0, vx) * 0.12 && t.x < TUN.fanX && Math.hypot(t.y - TUN.y0, t.z) < TUN.R) {
+      if (t.x > TUN.fanX - 1.2 * S - Math.max(0, vx) * 0.12 && t.x < TUN.fanX && Math.hypot(t.y - TUN.y0, t.z) < TUN.R) {
         rec.root.bulleted = true; bulletUntil = performance.now() + 1500;
       }
     }
@@ -1367,16 +1404,16 @@ function loop(now) {
     rec.group.position.set(t.x, t.y, t.z);
     rec.group.quaternion.set(q.x, q.y, q.z, q.w);
     const rr = Math.hypot(t.y, t.z);
-    if (t.x > TUN.groundX - 1.4 - rec.radius && rr < PORTAL.R * 0.95) absorb(rec);
-    else if (t.x > TUN.groundX + 2 || t.x < -40 || Math.abs(t.y) > 40 || Math.abs(t.z) > 40) removeBody(rec, 'exit');
-    else if (rec.level > 0 && t.x > TUN.groundX - 0.8 && simTime - rec.born > 90) removeBody(rec, 'dissolve');
+    if (t.x > TUN.groundX - 1.4 * S - rec.radius && rr < PORTAL.R * 0.95) absorb(rec);
+    else if (t.x > TUN.groundX + 2 * S || t.x < -40 * S || Math.abs(t.y) > 40 * S || Math.abs(t.z) > 40 * S) removeBody(rec, 'exit');
+    else if (rec.level > 0 && t.x > TUN.groundX - 0.8 * S && simTime - rec.born > 90) removeBody(rec, 'dissolve');
   }
   checkVerdicts();
 
   if (smokeOn && air.U > 0.3) {
     for (let k = 0; k < 6; k++) {
-      const a = Math.random() * Math.PI * 2, rr = Math.sqrt(Math.random()) * 3.4;
-      particles.emit('smoke', { x: air.flowDir > 0 ? -1.6 : TUN.L + 0.9, y: Math.cos(a) * rr * (air.flowDir > 0 ? 1 : 0.7), z: Math.sin(a) * rr * (air.flowDir > 0 ? 1 : 0.7) }, { x: 0, y: 0, z: 0 }, 1, 0.05);
+      const a = Math.random() * Math.PI * 2, rr = Math.sqrt(Math.random()) * 3.4 * S;
+      particles.emit('smoke', { x: air.flowDir > 0 ? -1.6 * S : TUN.L + 0.9 * S, y: Math.cos(a) * rr * (air.flowDir > 0 ? 1 : 0.7), z: Math.sin(a) * rr * (air.flowDir > 0 ? 1 : 0.7) }, { x: 0, y: 0, z: 0 }, 1, 0.05);
     }
   }
   particles.update(fdt * ts, air);
@@ -1387,7 +1424,7 @@ function loop(now) {
     e.t += fdt * Math.max(ts, 0.3);
     const k = Math.min(1, e.t / 0.9);
     const ang = e.a0 + k * k * 9, rad = e.r0 * (1 - k);
-    e.group.position.set(e.x0 + k * 1.4 + 0.6 * k * k, Math.cos(ang) * rad, Math.sin(ang) * rad);
+    e.group.position.set(e.x0 + (k * 1.4 + 0.6 * k * k) * S, Math.cos(ang) * rad, Math.sin(ang) * rad);
     e.group.rotateOnAxis(e.spinAxis, fdt * 9);
     e.group.scale.setScalar(Math.max(0.001, 1 - k * k));
     if (k >= 1) { rig.remove(e.group); e.group.traverse(o => { if (o.isMesh && o.userData.ownGeo) o.geometry.dispose(); }); absorbing.splice(i, 1); }
@@ -1399,13 +1436,14 @@ function loop(now) {
   // fan visuals
   fan.rotor.rotation.x = rotor.theta;
   const sp = Math.abs(rotor.omega);
-  const blur = Math.max(0, Math.min(0.75, (sp * ts - 7) / 25));
+  // a big rotor turns visibly (150 rpm flat out): only a light blur, so you can see the blades go round
+  const blur = Math.max(0, Math.min(0.45, (sp * ts - 6) / 20));
   fan.disc.material.opacity = blur;
   for (const m of fan.mats) m.opacity = 1 - blur * 0.85;
   const on = rotor.setpoint > 0 || sp > 1;
   tunnel.beaconMat.emissiveIntensity = on ? 0.6 + 2 * Math.max(0, Math.sin(now / 160)) : 0.1;
   tunnel.beaconLight.intensity = on ? 30 : 0;
-  tunnel.beaconLight.target.position.set(tunnel.beacon.position.x + Math.cos(now / 300) * 8, tunnel.beacon.position.y - 6, Math.sin(now / 300) * 8);
+  tunnel.beaconLight.target.position.set(tunnel.beacon.position.x + Math.cos(now / 300) * 8, tunnel.beacon.position.y - 6, Math.sin(now / 300) * 8);   // tower units (1×, scaled)
 
   // camera
   if (camTween) {
@@ -1420,7 +1458,7 @@ function loop(now) {
     for (const rec of lastRoot.live) if (!best || rec.mass > best.mass) best = rec;
     if (best) {
       const p = best.group.getWorldPosition(new THREE.Vector3());
-      const d = new THREE.Vector3(-3.2, 1.4, 2.6);
+      const d = new THREE.Vector3(-3.2, 1.4, 2.6).multiplyScalar(Math.max(1, best.radius * 1.6));
       controls.target.lerp(p, 0.12);
       camera.position.lerp(p.clone().add(d), 0.06);
     }
@@ -1430,18 +1468,31 @@ function loop(now) {
   safety?.tick(now / 1000);
   const imb = imbalance();                      // a bent blade throws the rotor out of balance
   if (imb > 0.02 && !rotor.locked) shake = Math.max(shake, Math.min(0.9, imb * 0.8 * Math.min(1, Math.abs(rotor.omega) / 25)));
+  shakeOff.set(0, 0, 0);
   if (shake > 0.001) {
-    const s = shake * 0.06;
-    camera.position.x += (Math.random() - 0.5) * s; camera.position.y += (Math.random() - 0.5) * s;
-    shake *= Math.pow(0.02, fdt);
+    // a low wobble (6–11 Hz) sized to how far away the camera is, so a hit reads as heavy, not jittery
+    shakeT += fdt;
+    const s = shake * 0.0045 * camera.position.distanceTo(controls.target);
+    shakeOff.set(Math.sin(shakeT * 41) + 0.5 * Math.sin(shakeT * 67 + 1.3), (Math.sin(shakeT * 53 + 0.7) + 0.4 * Math.sin(shakeT * 29)) * 1.3, Math.sin(shakeT * 47 + 2.1)).multiplyScalar(s);
+    camera.position.add(shakeOff);
+    shake *= Math.pow(0.06, fdt);
   }
+  crew?.tick(now / 1000, fdt, shake);
   if (ride && ride.dive) ride.dive(fdt);
   if (holeAnim) stepHole(fdt);
   if (realAir && realAirMode !== 'off' && !(ride && ride.covered)) { try { realAir.update(fdt * ts, { bodies, air, camera, rig, hub: !holeMode }); } catch (e) { console.warn(e); setRealAir('off', true); realAirBroken = true; } }
   const cw = renderer.domElement.clientWidth;   // the split pane is gliding in or out: follow it
   if (cw !== lastCW) { lastCW = cw; resize(); }
-  if (!(pileCovers && flipping()) && !(ride && ride.covered)) renderer.render(scene, camera);   // flip mode: the tunnel is off-screen
-  audio.update(air.U, rotor.omega, FAN.blades, Math.abs(rotor.torque) / FAN.Tmax, ts);
+  if (!(pileCovers && flipping()) && !(ride && ride.covered)) renderer.render(scene, camera);
+  camera.position.sub(shakeOff);   // flip mode: the tunnel is off-screen
+  // bogging: anything that drags the rotor back down from the fastest it has been going (since the
+  // throttle last moved) makes the motor groan; the ordinary spin-up after a throttle change doesn't
+  const wSet = Math.abs(rotor.setpoint) * FAN.omegaMax, wNow = Math.abs(rotor.omega);
+  if (Math.abs(wSet - lastWSet) > 0.05 * FAN.omegaMax || wSet < 1 || rotor.locked) wPeak = 0;
+  lastWSet = wSet; wPeak = Math.min(wSet, Math.max(wPeak, wNow));
+  const strain = wPeak > 0.4 * wSet && wSet >= 1 ? Math.max(0, Math.min(1, 2.5 * (wPeak - wNow) / wPeak)) : 0;
+  audio.update(air.U, rotor.omega, FAN.blades, Math.abs(rotor.torque) / FAN.Tmax, ts, strain, FAN.omegaMax);
+  $('rpm').classList.toggle('strain', strain > 0.15);
   if (frames % 4 === 0) hud(ts);
 }
 
@@ -1538,10 +1589,10 @@ function buildUI() {
   $('start').onclick = () => {
     if ($('start').dataset.going) return;
     audio.start(); stats.start(); shredTitle(); $('hatch').hidden = false; $('payload').hidden = false;
-    if (!armed) { const c = recipes.find(r => r.id === 'couch'); if (c) arm(c); }   // a couch is ready to go: pull the lever
+    if (!armed) { const c = recipes.find(r => r.id === 'car'); if (c) arm(c); }   // a car is ready to go: pull the lever
     $('hatch').classList.toggle('idle', !armed);
     if (rotor.setpoint === 0) { thr.value = 70; setThr(); }
-    toast(isTouch ? 'A couch is loaded. Pull DROP IT! (or flick it at the tunnel), or pick something else below' : 'A couch is loaded. Pull DROP IT! (D) or click/flick to throw it, or pick something else below');
+    toast(isTouch ? 'A hatchback is loaded. Pull DROP IT! (or flick it at the tunnel), or pick something else below' : 'A hatchback is loaded. Pull DROP IT! (D) or click/flick to throw it, or pick something else below');
   };
   // maker dialog
   $('makeGo').onclick = runMaker;
@@ -1700,7 +1751,7 @@ function pullHatch() {
   h.classList.add('pulled');
   audio.hit('thunk', 4000); setTimeout(() => audio.hit('clang', 900), 90);
   setTimeout(() => h.classList.remove('pulled'), 520);
-  const rad = recipeRadius(armed), lim = Math.max(0, Math.min(0.35, TUN.R - rad - 0.3));
+  const rad = recipeRadius(armed), lim = Math.max(0, Math.min(0.35 * S, TUN.R - rad - 0.3));
   const a = Math.random() * Math.PI * 2, r = Math.random() * lim;
   const wp = new THREE.Vector3(Math.cos(a) * r, TUN.groundX + 1.4 + Math.min(1.2, rad * 0.6), Math.sin(a) * r);
   const wv = new THREE.Vector3((Math.random() - 0.5) * 0.3, -3, (Math.random() - 0.5) * 0.3);
@@ -1718,7 +1769,7 @@ function throwArmed(sx, sy, swipe) {
   const topY = TUN.groundX + 1.4;
   const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -topY);
   let wp = new THREE.Vector3();
-  if (!ray.ray.intersectPlane(plane, wp) || wp.distanceTo(camera.position) > 60) wp.set((Math.random() - 0.5) * 1.5, topY, (Math.random() - 0.5) * 1.5);
+  if (!ray.ray.intersectPlane(plane, wp) || wp.distanceTo(camera.position) > 60 * S) wp.set((Math.random() - 0.5) * 1.5 * S, topY, (Math.random() - 0.5) * 1.5 * S);
   const rr = Math.hypot(wp.x, wp.z), lim = Math.max(0.15, TUN.R - Math.max(0.5, recipeRadius(armed) + 0.25));
   if (rr > lim) { wp.x *= lim / rr; wp.z *= lim / rr; }
   wp.y = topY;
@@ -2016,6 +2067,6 @@ function addGenerated(raw) {
   return r;
 }
 
-window.tunnel = { get pileCam() { return pileCam; }, get realAir() { return realAir; }, openHatch: () => openPayloadHatch('lever'), get payload() { return payloadStat; }, get hatchState() { return hatchState; }, pile, share: () => openShare(), phys: (id) => recipePhys(recipes.find(r => r.id === id)), recipes: () => recipes, repair: () => repairFan(), get jam() { return jam; }, bladeDmg, addRecipe: addGenerated, get bodies() { return bodies; }, rotor: () => rotor, air: () => air, spawn: (id, x = -1.4) => spawnRecipe(recipes.find(r => r.id === id), new THREE.Vector3(x, (Math.random() - 0.5) * 0.6, (Math.random() - 0.5) * 0.6), new THREE.Vector3(2, 0, 0)), get drops() { return drops; }, setThrottle: (v) => { $('throttle').value = v; $('throttle').oninput(); }, setCamera, arm: (id) => arm(recipes.find(r => r.id === id)) };
+window.tunnel = { get heavyLog() { return heavyLog; }, get shake() { return shake; }, get pileCam() { return pileCam; }, camAt: (p, t) => { camTween = null; camera.position.set(...p); controls.target.set(...t); controls.update(); }, get realAir() { return realAir; }, openHatch: () => openPayloadHatch('lever'), get payload() { return payloadStat; }, get hatchState() { return hatchState; }, pile, share: () => openShare(), phys: (id) => recipePhys(recipes.find(r => r.id === id)), recipes: () => recipes, repair: () => repairFan(), get jam() { return jam; }, bladeDmg, addRecipe: addGenerated, get bodies() { return bodies; }, rotor: () => rotor, air: () => air, spawn: (id, x = -1.4) => spawnRecipe(recipes.find(r => r.id === id), new THREE.Vector3(x, (Math.random() - 0.5) * 0.6, (Math.random() - 0.5) * 0.6), new THREE.Vector3(2, 0, 0)), get drops() { return drops; }, setThrottle: (v) => { $('throttle').value = v; $('throttle').oninput(); }, setCamera, arm: (id) => arm(recipes.find(r => r.id === id)) };
 
 boot().catch(e => { console.error(e); fail(e.message); });
