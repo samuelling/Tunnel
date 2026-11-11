@@ -1,4 +1,4 @@
-// js/prompt.js
+// ../js/prompt.js
 var SPRAYS = ["juice", "yolk", "pulp", "seeds", "confetti", "paper", "feathers", "dust", "shards", "glass", "sparks", "foam", "plastic", "fabric", "food", "cash"];
 var SOUNDS = ["squeak", "squish", "splat", "crack", "shatter", "glass", "clang", "thunk", "pop", "tear", "squawk", "crunch", "zap"];
 var MATERIAL_NAMES = ["plastic", "rubber", "metal", "chrome", "steel", "iron", "glass", "ceramic", "wood", "fruit", "paper", "fabric", "stone", "food", "glow"];
@@ -29,7 +29,7 @@ Reply with ONLY one line of minified JSON (no spaces, no prose, no code fence). 
     "color": "#rrggbb",
     "material": default "plastic"; one of ${JSON.stringify(MATERIAL_NAMES)} ("metal" = ordinary sheet/structural steel or aluminium, "steel" = hardened or armour-thick steel, "iron" = cast iron),
     "pattern" (optional): {"type":"stripes"|"bands"|"spots"|"segments","color":"#rrggbb","count":n,"colors":["#..",...]}}
-Use real-world dimensions in metres, y is up, the object roughly centred on the origin, largest dimension under 3 m. Make it recognisable and a bit charming.`;
+Use real-world dimensions in metres, y is up, the object roughly centred on the origin, largest dimension under 30 m: it can be as big as a bus, a jet or a whale (the shredder's tube is 14 m across; anything longer goes in end-first). Make it recognisable and a bit charming.`;
 var recipeUser = (what) => `Design: "${String(what).replace(/"/g, "'")}"`;
 function objectKey(name) {
   let s = String(name || "").toLowerCase().normalize("NFKD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim().replace(/^(a|an|the|some|my|one|two|three|several|lots of|a bunch of|a pair of|a giant|giant)\s+/, "");
@@ -51,7 +51,7 @@ function looseKey(name) {
   return k;
 }
 
-// js/dropcodec.js
+// ../js/dropcodec.js
 var WIRE_POINTS = 16;
 var toB64 = (bytes) => {
   let s = "";
@@ -90,7 +90,7 @@ function slimDrop(d, maxPoints = WIRE_POINTS) {
   return { ...d, v: 2, pieces: d.pieces.map((pc) => slimPiece(pc, maxPoints)) };
 }
 
-// worker/worker.js
+// worker.js
 var DEFAULT_ORIGINS = ["https://samuelling.github.io"];
 var CACHE = "https://tunnel-cache.invalid/";
 var SHELF_MAX = 300;

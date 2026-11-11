@@ -6,9 +6,9 @@ import * as THREE from 'three';
 import { TUN0, S } from './config.js';
 
 const skin = ['#f1c9a5', '#c68863', '#8d5524', '#e0ac69'];
-const face = (g, dx, dz) => { g.rotation.y = -Math.atan2(dz, dx); };   // people are built facing +x
+export const face = (g, dx, dz) => { g.rotation.y = -Math.atan2(dz, dx); };   // people are built facing +x
 
-function person(i) {
+export function person(i) {
   const g = new THREE.Group();
   const M = (c, opt = {}) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.7, ...opt });
   const vest = M('#ff6a13', { emissive: '#ff4d00', emissiveIntensity: 0.25 });

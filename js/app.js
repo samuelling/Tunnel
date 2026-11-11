@@ -16,7 +16,7 @@ import { strengthOf, scaleStrength, BLADE, fmtForce } from './strength.js';
 import { buildOutOfOrder } from './outoforder.js';
 import { SessionPile, renderPileImage, renderPostcard, postcardNote } from './sharepile.js';
 import { PileCam } from './pilecam.js';
-import { buildCrew } from './crew.js';
+import { buildCrew, person, face } from './crew.js';
 import { buildSafetyBoard } from './safetyboard.js';
 import { WORKER_URL, WORLD_BUILDER_URL } from './settings.js';
 import { stats } from './stats.js';
@@ -212,22 +212,33 @@ function newRoot(recipe) {
   return r;
 }
 
-function spawnRecipe(recipe, pos, vel) {
+function spawnRecipe(recipe, pos, vel, pose) {
   if (recipe.id !== 'blade-shard') stats.threw(recipe.name);
   const n = recipe.count || 1;
   const root = newRoot(recipe);
   for (let k = 0; k < n; k++) {
     const built = buildObject(recipe);
     const off = n > 1 ? new THREE.Vector3((Math.random() - 0.5) * 0.12, k * 0.004, (Math.random() - 0.5) * 0.12) : new THREE.Vector3();
-    const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(Math.random() * 6.3, Math.random() * 6.3, Math.random() * 6.3));
-    const av = new THREE.Vector3((Math.random() - 0.5) * 6, (Math.random() - 0.5) * 6, (Math.random() - 0.5) * 6);
-    const v = vel.clone().add(new THREE.Vector3((Math.random() - 0.5), (Math.random() - 0.5), (Math.random() - 0.5)).multiplyScalar(n > 1 ? 1.5 : 0.3));
+    const q = pose?.quat ? pose.quat.clone() : longWay(built) || new THREE.Quaternion().setFromEuler(new THREE.Euler(Math.random() * 6.3, Math.random() * 6.3, Math.random() * 6.3));
+    const av = pose?.angvel ? pose.angvel.clone() : new THREE.Vector3((Math.random() - 0.5) * 6, (Math.random() - 0.5) * 6, (Math.random() - 0.5) * 6);
+    const v = pose ? vel.clone() : vel.clone().add(new THREE.Vector3((Math.random() - 0.5), (Math.random() - 0.5), (Math.random() - 0.5)).multiplyScalar(n > 1 ? 1.5 : 0.3));
     createBody({ recipe, group: built.group, parts: built.parts, pos: pos.clone().add(off), quat: q, vel: v, angvel: av, level: 0, root, radius: built.radius, panelKey: recipe.id, impact: recipe.impact || 0 });
     root.mass0 += recipe.mass;
   }
   lastRoot = root;
   trimBodies();
   return root;
+}
+
+// anything too long to go in sideways (wider than the tube) goes in end-first: its long axis along
+// the tube, with a little lean and a random roll
+function longWay(built) {
+  const bb = new THREE.Box3().setFromObject(built.group), sz = bb.getSize(new THREE.Vector3());
+  const ax = sz.x >= sz.y && sz.x >= sz.z ? 'x' : sz.y >= sz.z ? 'y' : 'z';
+  if (sz[ax] < 2 * TUN.R - 1.5) return null;
+  const from = new THREE.Vector3(ax === 'x' ? 1 : 0, ax === 'y' ? 1 : 0, ax === 'z' ? 1 : 0);
+  const q = new THREE.Quaternion().setFromUnitVectors(from, new THREE.Vector3(Math.random() < 0.5 ? 1 : -1, 0, 0));
+  return new THREE.Quaternion().setFromEuler(new THREE.Euler(Math.random() * 6.3, (Math.random() - 0.5) * 0.15, (Math.random() - 0.5) * 0.15)).multiply(q);
 }
 
 function trimBodies() {
@@ -998,6 +1009,136 @@ function stepHole(dt) {
   }
 }
 
+// ------------------------------------------------------------------------------- the push crew
+// Sometimes DROP IT isn't a lever: the camera cuts to the catwalk, where a crew shoves the thing
+// along the deck in heaves, over the lip and down the intake's funnel; the physics takes it from
+// there, mid-fall. Always for the first big drop of a visit, then about 2 in 5 big drops.
+// Things wider than the tube skip it (they go in end-first). A tap or another pull skips ahead.
+let push = null, pushedOnce = false;
+const DECK = { y: (TUN0.groundX + 0.1) * S, inner: (TUN0.R + 0.6) * S, rail: (TUN0.R + 1.85) * S };
+function wantPush(r, rad) {
+  if (ride || holeMode || rad < 0.75 || rad > TUN.R - 0.4) return false;
+  const go = !pushedOnce || Math.random() < 0.4;
+  if (go) pushedOnce = true;
+  return go;
+}
+function startPush(recipe) {
+  const built = buildObject(recipe), g = built.group;
+  g.traverse(o => { if (o.isMesh) o.castShadow = true; });
+  const lb = new THREE.Box3().setFromObject(g), ls = lb.getSize(new THREE.Vector3());
+  // the side of the rim facing the camera, so the cut keeps you oriented
+  const a = Math.atan2(camera.position.z, camera.position.x) + (Math.random() - 0.5) * 0.5;
+  const u = new THREE.Vector3(-Math.cos(a), 0, -Math.sin(a)), t = new THREE.Vector3(-Math.sin(a), 0, Math.cos(a));
+  // long side along the rim, so the crew shoves it broadside
+  const longX = ls.x >= ls.z;
+  const yaw = longX ? -(a + Math.PI / 2) : -a;
+  const w = longX ? ls.x : ls.z, d = (longX ? ls.z : ls.x) / 2;
+  const q0 = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
+  g.quaternion.copy(q0);
+  const bb = new THREE.Box3().setFromObject(g), lift = -bb.min.y;
+  const r0 = Math.min(DECK.inner + d + 0.25, DECK.rail - 0.5 - d), rTip = DECK.inner - 0.12;
+  const rFin = Math.max(0, TUN.R - built.radius - 0.3);
+  scene.add(g);
+  const n = Math.max(2, Math.min(5, Math.round(w / 1.1)));
+  const crewP = Array.from({ length: n }, (_, i) => { const p = person(i + 3); scene.add(p.g); return { p, s: (i - (n - 1) / 2) * Math.min(1.1, w / n) + (Math.random() - 0.5) * 0.15, lag: Math.random() * 0.4 }; });
+  const slideT = Math.min(3.2, 1.3 + (r0 - rTip) * 0.9 + Math.log10(recipe.mass + 1) * 0.15);
+  const size = Math.max(ls.x, ls.y, ls.z);
+  push = { recipe, g, a, u, t, q0, lift, d, r0, rTip, rFin, crewP, size, h: ls.y, slideT, tipT: 0.5, fallT: 0.85, tt: 0, heave: 0, prevCam: camMode, phi: 0, r: r0, y: DECK.y };
+  camTween = null; controls.enabled = false;
+  $('camName') && ($('camName').textContent = 'Catwalk');
+  stepPush(0);
+}
+// where the object is at time tt: sliding (in heaves), tipping over the lip (pivoting about it),
+// then falling into the funnel (tumbling about its own centre while it drops and moves inward)
+function pushCentre(P, r, phi) {
+  const c = new THREE.Vector3().copy(P.u).multiplyScalar(-r); c.y = DECK.y + P.lift;
+  if (phi <= 0) return c;
+  const E = new THREE.Vector3().copy(P.u).multiplyScalar(-DECK.inner); E.y = DECK.y;
+  return c.sub(E).applyAxisAngle(P.t, phi).add(E);
+}
+function applyPush(P) {
+  const { slideT, tipT, fallT } = P, tt = P.tt;
+  let c, phi = 0;
+  if (tt < slideT) {
+    const x = tt / slideT, prog = x - 0.075 * Math.sin(2 * Math.PI * 2.5 * x) * (1 - x);   // heave, heave, heave
+    c = pushCentre(P, P.r0 + (P.rTip - P.r0) * Math.max(0, Math.min(1, prog * prog * (3 - 2 * prog))), 0);
+  } else if (tt < slideT + tipT) {
+    const x = (tt - slideT) / tipT;
+    phi = 0.75 * x * x;
+    c = pushCentre(P, P.rTip - 0.35 * x * x, phi);
+  } else {
+    const x = Math.min(1, (tt - slideT - tipT) / fallT), tf = x * fallT;
+    const c0 = pushCentre(P, P.rTip - 0.35, 0.75), r0 = Math.hypot(c0.x, c0.z);
+    const r = r0 + (P.rFin - r0) * (1 - (1 - x) * (1 - x));
+    phi = 0.75 + 1.5 * tf / fallT + 1.2 * tf;
+    c = new THREE.Vector3().copy(P.u).multiplyScalar(-r); c.y = c0.y - (4.9 * tf * tf + 1.5 * tf);
+  }
+  P.g.position.copy(c);
+  P.g.quaternion.setFromAxisAngle(P.t, phi).multiply(P.q0);
+  P.phi = phi;
+}
+function stepPush(dt) {
+  const P = push;
+  const prev = P.g.position.clone(), prevPhi = P.phi;
+  P.tt += dt;
+  applyPush(P);
+  const rObj = Math.hypot(P.g.position.x, P.g.position.z);
+  const T = P.slideT + P.tipT + P.fallT;
+  const sliding = P.tt < P.slideT;
+  // heaves: a grunt of a thud as the crew shove together
+  const hv = Math.floor(P.tt / P.slideT * 2.5);
+  if (sliding && hv > P.heave) { P.heave = hv; audio.hit('thunk', 3e4); audio.hit('crunch', 2e3); }
+  if (sliding && Math.random() < dt * 9) {   // grit kicked up where it scrapes the deck
+    const at = new THREE.Vector3().copy(P.u).multiplyScalar(-(rObj - P.d * 0.8)).addScaledVector(P.t, (Math.random() - 0.5) * P.d * 2); at.y = DECK.y + 0.05;
+    particles.emit('dust', rig.worldToLocal(at), { x: 0, y: 0, z: 0 }, 3, 0.6);
+  }
+  if (!P.tipped && P.tt >= P.slideT) { P.tipped = true; audio.hit('clang', 6e4); audio.whoosh?.(2); }
+  // the crew: behind the object, leaning in, legs going; they stop at the lip and stand back
+  P.crewP.forEach(({ p, s, lag }, i) => {
+    const rC = sliding ? Math.max(DECK.inner + 0.35, rObj + P.d + 0.42) : DECK.inner + 0.5 + Math.min(1, (P.tt - P.slideT) * 1.5) * 0.6;
+    p.g.position.copy(P.u).multiplyScalar(-rC).addScaledVector(P.t, s); p.g.position.y = DECK.y;
+    face(p.g, P.u.x, P.u.z);
+    const pushing = sliding ? 1 : Math.max(0, 1 - (P.tt - P.slideT) * 3);
+    const beat = Math.sin((P.tt + lag) * 2 * Math.PI * 2.5 / P.slideT);
+    p.g.rotation.z = -0.38 * pushing - 0.06 * pushing * beat;
+    const sw = Math.sin((P.tt + lag) * 7) * 0.4 * pushing;
+    p.legs[0].rotation.z = 0.25 * pushing + sw; p.legs[1].rotation.z = -0.15 * pushing - sw;
+    p.arms[0].rotation.z = p.arms[1].rotation.z = 1.45 * pushing + (1 - pushing) * (i % 2 ? 2.9 : 0.2);   // after the shove: one cheers, one shrugs
+  });
+  // camera: just outside the rail, low beside the crew, looking across them at the hole; a slow push in
+  const k = Math.min(1, P.tt / T), sz = Math.min(P.size, 12);
+  const ca = P.a + 0.5 + 0.08 * k;
+  const camR = DECK.rail + 1.6 + sz * 0.35 - 1.2 * k, camY = DECK.y + 1.6 + sz * 0.3 + 0.8 * k;
+  camera.position.set(Math.cos(ca) * camR, camY, Math.sin(ca) * camR);
+  const tgtR = sliding ? (rObj + DECK.inner) / 2 : DECK.inner - 1.2 * k;
+  controls.target.set(-P.u.x * tgtR, DECK.y + Math.min(P.h, 3) * 0.45 - (sliding ? 0 : 1.5 * (P.tt - P.slideT)), -P.u.z * tgtR);
+  camera.lookAt(controls.target);
+  if (P.tt >= T) handoffPush(prev, prevPhi, dt);
+}
+function handoffPush(prev, prevPhi, dt) {
+  const P = push; push = null;
+  // into the physics at the same pose, with the velocity it had
+  const wp = P.g.position.clone(), wq = P.g.quaternion.clone();
+  const vw = dt > 1e-4 ? wp.clone().sub(prev).divideScalar(dt) : new THREE.Vector3(0, -8, 0);
+  const omega = dt > 1e-4 ? (P.phi - prevPhi) / dt : 2;
+  const avw = P.t.clone().multiplyScalar(omega);
+  scene.remove(P.g);
+  const qi = qInv();
+  spawnRecipe(P.recipe, rig.worldToLocal(wp), vw.applyQuaternion(qi), { quat: qi.clone().multiply(wq), angvel: avw.applyQuaternion(qi) });
+  // a beat looking down the hole, then back to the camera you had
+  setTimeout(() => {
+    for (const { p } of P.crewP) scene.remove(p.g);
+    controls.enabled = true;
+    setCamera(P.prevCam);
+  }, 1300);
+}
+function finishPush() {
+  if (!push) return;
+  // jump to just before the hand-off, then take one real step so it leaves with a sensible velocity
+  push.tt = push.slideT + push.tipT + push.fallT - 0.04; applyPush(push);
+  stepPush(0.04);
+}
+
 // ------------------------------------------------------------------------------- real air
 // The lab's lattice-Boltzmann solver on a slice through the tube, drawn as a glowing cut-away
 // (js/realair.js). It also feeds back: bodies near the slice feel its wakes and jets, and things
@@ -1453,7 +1594,8 @@ function loop(now) {
     controls.target.lerpVectors(camTween.from.tgt, camTween.to.tgt, e);
     if (camTween.t >= 1) camTween = null;
   }
-  if (CAMS[camMode].follow && lastRoot) {
+  if (push) stepPush(fdt);
+  if (!push && CAMS[camMode].follow && lastRoot) {
     let best = null;
     for (const rec of lastRoot.live) if (!best || rec.mass > best.mass) best = rec;
     if (best) {
@@ -1605,6 +1747,7 @@ function buildUI() {
   const cv = renderer.domElement;
   let down = null;
   cv.addEventListener('pointerdown', (e) => {
+    if (push) { finishPush(); return; }   // tap to skip the crew
     audio.start();
     if (!armed || e.button !== 0) return;
     down = { x: e.clientX, y: e.clientY, t: performance.now(), pts: [[e.clientX, e.clientY, performance.now()]] };
@@ -1747,11 +1890,14 @@ function pullHatch() {
     toast(compactUI() ? 'Pick something from the tray first' : 'Pick something from the tray first, then pull DROP IT!');
     return;
   }
+  if (push) { finishPush(); return; }   // a second pull hurries the crew along
   audio.start();
   h.classList.add('pulled');
   audio.hit('thunk', 4000); setTimeout(() => audio.hit('clang', 900), 90);
   setTimeout(() => h.classList.remove('pulled'), 520);
-  const rad = recipeRadius(armed), lim = Math.max(0, Math.min(0.35 * S, TUN.R - rad - 0.3));
+  const rad = recipeRadius(armed);
+  if (wantPush(armed, rad)) { startPush(armed); if (compactUI()) $('card').hidden = true; return; }
+  const lim = Math.max(0, Math.min(0.35 * S, TUN.R - rad - 0.3));
   const a = Math.random() * Math.PI * 2, r = Math.random() * lim;
   const wp = new THREE.Vector3(Math.cos(a) * r, TUN.groundX + 1.4 + Math.min(1.2, rad * 0.6), Math.sin(a) * r);
   const wv = new THREE.Vector3((Math.random() - 0.5) * 0.3, -3, (Math.random() - 0.5) * 0.3);
@@ -2067,6 +2213,6 @@ function addGenerated(raw) {
   return r;
 }
 
-window.tunnel = { get heavyLog() { return heavyLog; }, get shake() { return shake; }, get pileCam() { return pileCam; }, camAt: (p, t) => { camTween = null; camera.position.set(...p); controls.target.set(...t); controls.update(); }, get realAir() { return realAir; }, openHatch: () => openPayloadHatch('lever'), get payload() { return payloadStat; }, get hatchState() { return hatchState; }, pile, share: () => openShare(), phys: (id) => recipePhys(recipes.find(r => r.id === id)), recipes: () => recipes, repair: () => repairFan(), get jam() { return jam; }, bladeDmg, addRecipe: addGenerated, get bodies() { return bodies; }, rotor: () => rotor, air: () => air, spawn: (id, x = -1.4) => spawnRecipe(recipes.find(r => r.id === id), new THREE.Vector3(x, (Math.random() - 0.5) * 0.6, (Math.random() - 0.5) * 0.6), new THREE.Vector3(2, 0, 0)), get drops() { return drops; }, setThrottle: (v) => { $('throttle').value = v; $('throttle').oninput(); }, setCamera, arm: (id) => arm(recipes.find(r => r.id === id)) };
+window.tunnel = { pushSeek: (tt) => { if (push) push.tt = tt; }, get push() { return push && { tt: push.tt, T: push.slideT + push.tipT + push.fallT, r: push.r0, rFin: push.rFin }; }, get heavyLog() { return heavyLog; }, get shake() { return shake; }, get pileCam() { return pileCam; }, camAt: (p, t) => { camTween = null; camera.position.set(...p); controls.target.set(...t); controls.update(); }, get realAir() { return realAir; }, openHatch: () => openPayloadHatch('lever'), get payload() { return payloadStat; }, get hatchState() { return hatchState; }, pile, share: () => openShare(), phys: (id) => recipePhys(recipes.find(r => r.id === id)), recipes: () => recipes, repair: () => repairFan(), get jam() { return jam; }, bladeDmg, addRecipe: addGenerated, get bodies() { return bodies; }, rotor: () => rotor, air: () => air, spawn: (id, x = -1.4) => spawnRecipe(recipes.find(r => r.id === id), new THREE.Vector3(x, (Math.random() - 0.5) * 0.6, (Math.random() - 0.5) * 0.6), new THREE.Vector3(2, 0, 0)), get drops() { return drops; }, setThrottle: (v) => { $('throttle').value = v; $('throttle').oninput(); }, setCamera, arm: (id) => arm(recipes.find(r => r.id === id)) };
 
 boot().catch(e => { console.error(e); fail(e.message); });

@@ -217,7 +217,7 @@ const num = (v, d, lo, hi) => { v = +v; if (!isFinite(v)) v = d; return Math.max
 
 function geometryFor(p) {
   const s = Array.isArray(p.size) ? p.size : [];
-  const L = (i, d) => num(s[i], d, 0.0005, 12);
+  const L = (i, d) => num(s[i], d, 0.0005, 30);
   switch (p.shape) {
     case 'sphere': { const g = new THREE.SphereGeometry(1, 32, 20); g.scale(L(0, 0.1), L(1, s[0] ?? 0.1), L(2, s[0] ?? 0.1)); return g; }
     case 'box': return new THREE.BoxGeometry(L(0, 0.1), L(1, 0.1), L(2, 0.1));
@@ -241,11 +241,11 @@ function geometryFor(p) {
       return new THREE.LatheGeometry(pts, 32);
     }
     case 'tube': {
-      const pts = (p.points || [[-0.1, 0, 0], [0.1, 0, 0]]).slice(0, 32).map(q => new THREE.Vector3(num(q[0], 0, -12, 12), num(q[1], 0, -12, 12), num(q[2], 0, -12, 12)));
+      const pts = (p.points || [[-0.1, 0, 0], [0.1, 0, 0]]).slice(0, 32).map(q => new THREE.Vector3(num(q[0], 0, -16, 16), num(q[1], 0, -16, 16), num(q[2], 0, -16, 16)));
       if (pts.length < 2) pts.push(pts[0].clone().add(new THREE.Vector3(0.1, 0, 0)));
       return new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 32, num(p.radius, 0.02, 0.001, 1), 12, false);
     }
-    case 'teapot': { const g = new TeapotGeometry(num(s[0], 0.1, 0.01, 2), 6); return g; }
+    case 'teapot': { const g = new TeapotGeometry(num(s[0], 0.1, 0.01, 12), 6); return g; }
     default: return new THREE.SphereGeometry(L(0, 0.1), 16, 12);
   }
 }
@@ -310,7 +310,7 @@ export function sanitizeRecipe(r) {
     id: r.id || ('gen-' + Math.random().toString(36).slice(2, 8)),
     name: String(r.name || 'Mystery object').slice(0, 40),
     icon: typeof r.icon === 'string' ? r.icon.slice(0, 4) : '✨',
-    mass: num(r.mass, 1, 0.001, 40000),
+    mass: num(r.mass, 1, 0.001, 250000),
     toughness: num(r.toughness, 20, 0.01, 1e6),
     impact: num(r.impact, 0, 0, 1e7),
     unbreakable: !!r.unbreakable, pop: !!r.pop,
@@ -330,7 +330,7 @@ export function sanitizeRecipe(r) {
     out.parts.push({
       shape: ['sphere', 'box', 'plate', 'roundbox', 'cylinder', 'cone', 'capsule', 'torus', 'dome', 'lathe', 'tube', 'teapot'].includes(p.shape) ? p.shape : 'box',
       size: Array.isArray(p.size) ? p.size.slice(0, 3) : [0.1, 0.1, 0.1],
-      pos: Array.isArray(p.pos) ? p.pos.slice(0, 3).map(v => num(v, 0, -12, 12)) : [0, 0, 0],
+      pos: Array.isArray(p.pos) ? p.pos.slice(0, 3).map(v => num(v, 0, -16, 16)) : [0, 0, 0],
       rot: Array.isArray(p.rot) ? p.rot.slice(0, 3).map(v => num(v, 0, -720, 720)) : [0, 0, 0],
       color: /^#[0-9a-f]{6}$/i.test(p.color) ? p.color : '#999999',
       material: MATERIALS[p.material] ? p.material : 'plastic',
